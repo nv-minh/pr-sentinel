@@ -178,8 +178,8 @@ provider: deepseek          # anthropic (default) | deepseek | glm | your own
 | Provider | Endpoint | Key | Deep dive | Claims |
 |---|---|---|---|---|
 | `anthropic` | *(default)* | `ANTHROPIC_API_KEY` | `claude-sonnet-5` | `claude-haiku-4-5-20251001` |
-| `deepseek` | `api.deepseek.com/anthropic` | `DEEPSEEK_API_KEY` | `deepseek-v4-pro` | `deepseek-v4-flash` |
-| `glm` | `api.z.ai/api/anthropic` | `ZAI_API_KEY` | `glm-5.2` | `glm-4.7` |
+| `deepseek` | `https://api.deepseek.com/anthropic` | `DEEPSEEK_API_KEY` | `deepseek-v4-pro` | `deepseek-v4-flash` |
+| `glm` | `https://api.z.ai/api/anthropic` | `ZAI_API_KEY` | `glm-5.2` | `glm-4.7` |
 
 Anything else is a few lines of config — every key is required:
 
@@ -200,6 +200,12 @@ turn, not a failed review. And `total_cost_usd` is priced from Anthropic's
 table, so cost is recorded as unknown and `max_budget_usd` does not apply.
 Set `structured_output: native` and `reports_cost: true` on a custom provider
 only if it genuinely implements both.
+
+Known limitation: the repair turn fires when a prompt-mode reply cannot be
+*parsed*, not when it parses into the wrong *shape* — a missing required key,
+a value outside an enum. Nothing enforces the schema server-side on a
+prompt-mode provider, so a well-formed reply of the wrong shape fails the
+phase instead of earning a second turn.
 
 Tokens are read from the environment and never written to `prsentinel.yml`; the
 dashboard shows whether a key is present, never the key.
@@ -240,7 +246,7 @@ never needs write access to report.
 ## Tests
 
 ```bash
-python -m pytest -q            # 262 tests
+python -m pytest -q
 (cd web/ui && npm test -- --run)
 ```
 
