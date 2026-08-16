@@ -3,6 +3,7 @@ import json
 import pytest
 
 from agent import AgentResult
+from session_store import FileSessionStore
 from synthesize import MARKER
 from threads import (build_followup_prompt, fetch_replies, previous_session,
                      run_followup, save_replies, unseen)
@@ -73,6 +74,9 @@ def test_build_followup_prompt_quotes_replies_and_commits():
 
 def test_run_followup_resumes_the_previous_session(tmp_path):
     (tmp_path / "verify-meta.json").write_text(json.dumps({"session_id": "sess-9"}))
+    transcript = FileSessionStore(tmp_path).path_for({"session_id": "sess-9"})
+    transcript.parent.mkdir(parents=True, exist_ok=True)
+    transcript.write_text(json.dumps({"type": "user", "uuid": "a"}) + "\n")
     captured = {}
 
     def runner(prompt, **kw):
@@ -96,3 +100,67 @@ def test_run_followup_without_a_session_to_resume(tmp_path):
     with pytest.raises(RuntimeError, match="no previous verify session"):
         run_followup({}, tmp_path / "ws", tmp_path, {}, [], [],
                      runner=lambda *a, **kw: None)
+
+
+REPLY = [{"source": "conversation", "author": "dev1", "body": "ok", "path": None}]
+
+
+def _seed(session_dir, *, session_id="sess-9", transcript=True, findings=True):
+    session_dir.mkdir(parents=True, exist_ok=True)
+    (session_dir / "verify-meta.json").write_text(
+        json.dumps({"session_id": session_id, "head_sha": "sha1"}))
+    if findings:
+        (session_dir / "findings.json").write_text(json.dumps(FINDINGS))
+    if transcript:
+        path = FileSessionStore(session_dir).path_for({"session_id": session_id})
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"type": "user", "uuid": "a"}) + "\n")
+
+
+def _capture_runner(captured):
+    def runner(prompt, **kw):
+        captured.update(kw, prompt=prompt)
+        return AgentResult(data=dict(FINDINGS), session_id="sess-10", cost_usd=0.05,
+                           num_turns=3, duration_ms=10)
+    return runner
+
+
+def test_followup_resumes_when_the_transcript_survived(tmp_path):
+    captured = {}
+    _seed(tmp_path)
+    run_followup({"model": "m"}, tmp_path / "ws", tmp_path, {"head_sha": "sha2"},
+                 REPLY, [], runner=_capture_runner(captured))
+    assert captured["resume"] == "sess-9"
+    assert captured["session_dir"] == tmp_path
+    assert "Previous findings" not in captured["prompt"]
+
+
+def test_followup_goes_stateless_when_the_transcript_is_gone(tmp_path, capsys):
+    captured = {}
+    _seed(tmp_path, transcript=False)
+    run_followup({"model": "m"}, tmp_path / "ws", tmp_path, {"head_sha": "sha2"},
+                 REPLY, [], runner=_capture_runner(captured))
+    assert captured["resume"] is None
+    assert "Previous findings" in captured["prompt"]
+    assert '"C1"' in captured["prompt"]
+    assert "stateless" in capsys.readouterr().out
+
+
+def test_followup_raises_when_no_state_survived_at_all(tmp_path):
+    with pytest.raises(RuntimeError, match="no previous verify session"):
+        run_followup({}, tmp_path / "ws", tmp_path, {}, REPLY, [],
+                     runner=lambda *a, **kw: None)
+
+
+def test_followup_is_stateless_when_only_findings_survived(tmp_path):
+    captured = {}
+    (tmp_path / "findings.json").write_text(json.dumps(FINDINGS))
+    run_followup({"model": "m"}, tmp_path / "ws", tmp_path, {"head_sha": "sha2"},
+                 REPLY, [], runner=_capture_runner(captured))
+    assert captured["resume"] is None
+    assert "Previous findings" in captured["prompt"]
+
+
+def test_build_followup_prompt_omits_the_findings_block_by_default():
+    prompt = build_followup_prompt(REPLY, [])
+    assert "Previous findings" not in prompt

@@ -10,6 +10,7 @@ from pathlib import Path
 from agent import BASH_TOOLS, READ_ONLY_TOOLS, record_usage
 from agent import run_structured as _default_runner
 from gh import run_gh
+from session_store import FileSessionStore
 from synthesize import MARKER
 from verify import FINDINGS_SCHEMA, SYSTEM_PROMPT, validate_findings
 
@@ -79,13 +80,40 @@ def previous_session(session_dir: Path) -> str:
         return ""
 
 
-def build_followup_prompt(replies: list[dict], new_commits: list[dict]) -> str:
+def load_previous_findings(session_dir: Path) -> dict | None:
+    """The findings of the last review, or None if they did not survive."""
+    try:
+        return json.loads((session_dir / "findings.json").read_text())
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+def can_resume(session_dir: Path, session_id: str) -> bool:
+    """True when the transcript for `session_id` is on disk next to the findings.
+
+    A session id whose transcript is gone is worse than no session id: the SDK
+    would fail the resume mid-run instead of taking the cheaper stateless path.
+    """
+    if not session_id:
+        return False
+    return FileSessionStore(session_dir).path_for({"session_id": session_id}).exists()
+
+
+def build_followup_prompt(replies: list[dict], new_commits: list[dict],
+                          previous_findings: dict | None = None) -> str:
     quoted = "\n\n".join(
         f"[{r['source']}] {r['author']}"
         + (f" on {r['path']}" if r.get("path") else "") + f":\n{r['body']}"
         for r in replies)
     commits = "\n".join(f"- {c['sha'][:8]} {c['message'].splitlines()[0]}"
                         for c in new_commits if c.get("message")) or "- (no new commits)"
+    carried = ""
+    if previous_findings is not None:
+        carried = ("\nPrevious findings — your own verdicts from the earlier "
+                   "review, carried over because the session could not be "
+                   "resumed. Treat them as your prior conclusions, re-check the "
+                   "ones these replies and commits affect, and keep the rest:\n"
+                   f"{json.dumps(previous_findings, indent=2)}\n")
     return f"""
 The author replied to your review. The workspace is now at the latest commit.
 
@@ -94,7 +122,7 @@ New commits since your review:
 
 Replies:
 {quoted}
-
+{carried}
 Re-check only what these replies and commits affect: read the current code for
 those parts, then return the COMPLETE findings object again — carry over the
 verdicts that did not change, update the ones that did, and drop questions the
@@ -112,12 +140,17 @@ def run_followup(cfg: dict, workspace: Path, session_dir: Path, snapshot: dict,
     falls back to a full `run_verify`.
     """
     session_id = previous_session(session_dir)
-    if not session_id:
+    resuming = can_resume(session_dir, session_id)
+    carried = None if resuming else load_previous_findings(session_dir)
+    if not resuming and carried is None:
         raise RuntimeError("no previous verify session to resume")
+    mode = (f"resuming {session_id}" if resuming
+            else "stateless (transcript gone, carrying previous findings)")
+    print(f"[threads] follow-up: {mode}")
 
     tools = BASH_TOOLS if cfg.get("allow_bash") else READ_ONLY_TOOLS
     result = runner(
-        build_followup_prompt(replies, new_commits),
+        build_followup_prompt(replies, new_commits, previous_findings=carried),
         schema=FINDINGS_SCHEMA,
         cwd=workspace,
         tools=tools,
@@ -125,7 +158,8 @@ def run_followup(cfg: dict, workspace: Path, session_dir: Path, snapshot: dict,
         system_prompt=SYSTEM_PROMPT,
         max_turns=cfg.get("max_turns", 40),
         max_budget_usd=cfg.get("max_budget_usd"),
-        resume=session_id,
+        resume=session_id if resuming else None,
+        session_dir=session_dir,
     )
     findings = validate_findings(result.data)
 
