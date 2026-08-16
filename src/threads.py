@@ -160,6 +160,7 @@ def run_followup(cfg: dict, workspace: Path, session_dir: Path, snapshot: dict,
         max_budget_usd=cfg.get("max_budget_usd"),
         resume=session_id if resuming else None,
         session_dir=session_dir,
+        provider=cfg.get("provider"),
     )
     findings = validate_findings(result.data)
 

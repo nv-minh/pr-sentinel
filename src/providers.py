@@ -22,7 +22,8 @@ import os
 from dataclasses import dataclass, replace
 from pathlib import Path
 
-from config import AUTH_HINT, CLI_CONFIG
+import config
+from config import AUTH_HINT
 
 STRUCTURED_MODES = ("native", "prompt")
 
@@ -120,7 +121,9 @@ def has_auth(provider, env=None, cli_config=None):
     if token(provider, env):
         return True
     if provider.name == "anthropic" and not provider.base_url:
-        return Path(cli_config or CLI_CONFIG).exists()
+        # Looked up on the module, not imported by name, so tests that patch
+        # config.CLI_CONFIG (there's no other place it's defined) still apply.
+        return Path(cli_config or config.CLI_CONFIG).exists()
     return False
 
 

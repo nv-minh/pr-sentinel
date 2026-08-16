@@ -1,5 +1,7 @@
 import json
 
+import providers
+import run
 from run import main
 
 SNAPSHOT = {"owner": "demo", "repo": "app", "pr": 7, "title": "T",
@@ -198,3 +200,52 @@ def test_failed_phase_writes_failure_report(tmp_path, monkeypatch):
     monkeypatch.setattr("snapshot.build_snapshot", boom)
     assert main(["demo/app", "7", "--no-post", "--skip-human"]) == 1
     assert "github exploded" in (_session(tmp_path) / "report.md").read_text()
+
+
+def test_agent_config_carries_the_resolved_provider(monkeypatch):
+    monkeypatch.delenv("PRS_PROVIDER", raising=False)
+    monkeypatch.delenv("PRS_MODEL", raising=False)
+    monkeypatch.delenv("PRS_CLAIMS_MODEL", raising=False)
+    env = run.load_config()
+    cfg = run.agent_config(env, {"provider": "deepseek"})
+    assert cfg["provider"].name == "deepseek"
+    assert cfg["model"] == "deepseek-v4-pro"
+    assert cfg["claims_model"] == "deepseek-v4-flash"
+
+
+def test_agent_config_defaults_to_anthropic(monkeypatch):
+    for name in ("PRS_PROVIDER", "PRS_MODEL", "PRS_CLAIMS_MODEL"):
+        monkeypatch.delenv(name, raising=False)
+    cfg = run.agent_config(run.load_config(), {})
+    assert cfg["provider"].name == "anthropic"
+    assert cfg["model"] == "claude-sonnet-5"
+
+
+def test_run_refuses_a_provider_without_a_token(monkeypatch, tmp_path, capsys):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("PRS_PROVIDER", "deepseek")
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_AUTH_TOKEN", raising=False)
+    monkeypatch.setenv("PRS_SESSION_ROOT", str(tmp_path / "sessions"))
+    assert run.main(["owner/repo", "1"]) == 3
+    assert "DEEPSEEK_API_KEY" in capsys.readouterr().err
+
+
+def test_phases_forward_the_provider_to_the_runner(tmp_path):
+    """Every phase must pass cfg["provider"] through, or a gateway silently
+    falls back to Anthropic credentials."""
+    import claims
+
+    seen = {}
+
+    def fake_runner(prompt, **kw):
+        seen.update(kw)
+        return providers  # unused; we raise before the return value matters
+
+    cfg = {"claims_model": "m", "provider": providers.build("glm", None)}
+    snapshot = {"title": "t", "body": "b", "files": []}
+    try:
+        claims.extract_claims(snapshot, cfg, tmp_path, runner=fake_runner)
+    except Exception:
+        pass
+    assert seen["provider"].name == "glm"

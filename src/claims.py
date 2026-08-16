@@ -67,6 +67,7 @@ def extract_claims(snapshot: dict, cfg: dict, session_dir: Path,
         model=cfg.get("claims_model"),
         system_prompt=SYSTEM_PROMPT,
         max_turns=2,
+        provider=cfg.get("provider"),
     )
     claims = _validate(result.data)
 

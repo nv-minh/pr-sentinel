@@ -88,6 +88,7 @@ def draft_description(snapshot: dict, cfg: dict, session_dir: Path,
         model=cfg.get("claims_model"),
         system_prompt=SYSTEM_PROMPT,
         max_turns=2,
+        provider=cfg.get("provider"),
     )
     draft = result.data
     if not isinstance(draft, dict) or not draft.get("description"):

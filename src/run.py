@@ -12,8 +12,9 @@ import json
 import sys
 from pathlib import Path
 
+import providers
 from agent import total_cost
-from config import AUTH_HINT, load_config
+from config import load_config
 from gh import add_labels, create_check_run, gh_available
 from human_gate import run_gate
 from notify import build_payload, notify
@@ -40,9 +41,11 @@ def load_review_config(path: Path = CONFIG_PATH) -> dict:
 
 def agent_config(env, review_cfg: dict) -> dict:
     """The knobs the agent phases care about, from env + prsentinel.yml."""
+    provider = providers.resolve(review_cfg)
     return {
-        "model": env.model,
-        "claims_model": env.claims_model,
+        "provider": provider,
+        "model": provider.model,
+        "claims_model": provider.claims_model,
         "allow_bash": review_cfg.get("allow_bash", False),
         "max_turns": review_cfg.get("max_turns", 60),
         "max_budget_usd": review_cfg.get("max_budget_usd"),
@@ -153,11 +156,16 @@ def main(argv: list[str] | None = None) -> int:
     post = not (args.no_post or args.dry_run or args.fixtures is not None)
 
     if args.fixtures is None:
-        if not env.has_auth():
-            print(AUTH_HINT, file=sys.stderr)
+        provider = cfg["provider"]
+        if not providers.has_auth(provider):
+            print(providers.auth_hint(provider), file=sys.stderr)
             return 3
+        if review_cfg.get("max_budget_usd") and not provider.reports_cost:
+            print(f"[run] max_budget_usd is ignored: provider "
+                  f"{provider.name!r} does not report cost", file=sys.stderr)
         if not gh_available():
-            print("gh CLI not installed or not authenticated (gh auth login)", file=sys.stderr)
+            print("gh CLI not installed or not authenticated (gh auth login)",
+                  file=sys.stderr)
             return 2
 
     session_dir = env.session_root / owner / repo / f"pr-{num}"

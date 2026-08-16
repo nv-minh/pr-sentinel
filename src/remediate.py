@@ -81,6 +81,7 @@ def draft_patches(findings: dict, cfg: dict, workspace: Path, session_dir: Path,
         model=cfg.get("model"),
         system_prompt=SYSTEM_PROMPT,
         max_turns=cfg.get("max_turns", 30),
+        provider=cfg.get("provider"),
     )
     patches = [p for p in result.data.get("patches") or []
                if p.get("path") and p.get("old_snippet") and p.get("new_snippet")]
