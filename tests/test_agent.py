@@ -260,3 +260,15 @@ def test_prompt_mode_gives_up_after_one_repair(monkeypatch):
     with pytest.raises(RuntimeError, match="no JSON object"):
         agent.run_structured("extract", schema={"type": "object"},
                              provider=providers.build("deepseek", None))
+
+
+def test_effort_reaches_the_sdk_options(monkeypatch):
+    seen = _capture(monkeypatch)
+    agent.run_structured("hi", schema={"type": "object"}, effort="high")
+    assert seen["options"].effort == "high"
+
+
+def test_no_effort_is_sent_by_default(monkeypatch):
+    seen = _capture(monkeypatch)
+    agent.run_structured("hi", schema={"type": "object"})
+    assert seen["options"].effort is None

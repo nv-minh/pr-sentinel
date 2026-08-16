@@ -66,7 +66,7 @@ def _options(*, schema: dict | None, cwd: Path | str | None,
              tools: list[str] | None, model: str | None,
              max_turns: int | None, max_budget_usd: float | None,
              resume: str | None, system_prompt: str | None, env: dict,
-             session_dir: Path | str | None):
+             session_dir: Path | str | None, effort: str | None = None):
     from claude_agent_sdk import ClaudeAgentOptions
 
     allowed = list(tools or [])
@@ -86,6 +86,7 @@ def _options(*, schema: dict | None, cwd: Path | str | None,
         session_store=FileSessionStore(session_dir) if session_dir else None,
         output_format=({"type": "json_schema", "schema": schema}
                        if schema is not None else None),
+        effort=effort,
     )
 
 
@@ -153,7 +154,8 @@ def run_structured(prompt: str, *, schema: dict, cwd: Path | str | None = None,
                    resume: str | None = None,
                    system_prompt: str | None = None,
                    session_dir: Path | str | None = None,
-                   provider: providers.Provider | None = None) -> AgentResult:
+                   provider: providers.Provider | None = None,
+                   effort: str | None = None) -> AgentResult:
     """Run one agent turn-loop and return its schema-validated JSON answer.
 
     `tools=None` means no tools at all (a plain completion); pass
@@ -179,6 +181,7 @@ def run_structured(prompt: str, *, schema: dict, cwd: Path | str | None = None,
         resume=resume, system_prompt=system_prompt,
         session_dir=session_dir,
         env=providers.agent_env(provider),
+        effort=effort,
     )
     try:
         message = asyncio.run(_query(prompt, options))
