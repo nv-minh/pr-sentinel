@@ -98,6 +98,17 @@ export interface PrDetail {
   replies?: { author: string; body: string; created_at: string; source: string }[]
 }
 
+export interface ProviderInfo {
+  name: string
+  base_url: string
+  model: string
+  claims_model: string
+  structured_output: 'native' | 'prompt'
+  reports_cost: boolean
+  token_env: string
+  token_present: boolean
+}
+
 export interface ReviewStatus {
   running: boolean
   stale: boolean
@@ -134,6 +145,11 @@ export const api = {
   report: (owner: string, repo: string, pr: number) =>
     request<{ markdown: string }>(`/api/repos/${owner}/${repo}/pr/${pr}/report`),
   config: () => request<any>('/api/config'),
+  setProvider: (name: string) =>
+    request<any>('/api/config/provider', {
+      method: 'POST',
+      body: JSON.stringify({ name }),
+    }),
   setMode: (repo: string, mode: string) =>
     request<any>(`/api/config/repos/${encodeURIComponent(repo)}/mode`, {
       method: 'POST',

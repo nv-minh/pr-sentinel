@@ -16,9 +16,11 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+import providers
 from autoreview_config import load_config as load_autoreview_config
-from autoreview_config import auto_repos, list_repos, remove_repo, set_repo_mode
-from config import AUTH_HINT, load_config
+from autoreview_config import (auto_repos, list_repos, remove_repo,
+                               set_provider, set_repo_mode)
+from config import load_config
 from run import main as run_main
 from web import metrics
 
@@ -136,9 +138,25 @@ def api_config():
         "docs_fix_pr": cfg.get("docs_fix_pr"),
         "inline_suggestions": cfg.get("inline_suggestions"),
         "gate": cfg.get("gate"),
+        "provider": providers.describe(providers.resolve(cfg)),
+        "providers": providers.names(cfg),
         "repos": repos,
         "config_path": str(path),
     }
+
+
+@app.post("/api/config/provider")
+def api_set_provider(payload: dict):
+    """Switch which gateway LLM calls go to. Tokens stay in the environment."""
+    path = _require_config()
+    name = (payload.get("name") or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="name is required")
+    try:
+        set_provider(path, name)
+    except (ValueError, OSError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"ok": True, "provider": name}
 
 
 @app.post("/api/config/repos/{repo}/mode")
@@ -299,9 +317,9 @@ def trigger_review(owner: str, repo: str, pr: int, reply: bool = False):
     except (ValueError, OSError) as e:
         raise HTTPException(status_code=400, detail=f"invalid config: {e}")
 
-    env = load_config()
-    if not env.has_auth():
-        raise HTTPException(status_code=400, detail=AUTH_HINT)
+    provider = providers.resolve(cfg)
+    if not providers.has_auth(provider):
+        raise HTTPException(status_code=400, detail=providers.auth_hint(provider))
 
     root = _session_root()
     lock = _review_lock_path(root, owner, repo, pr)

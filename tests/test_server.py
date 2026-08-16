@@ -364,3 +364,57 @@ def test_spa_serves_client_routes(client):
         r = client.get(path)
         assert r.status_code == 200
         assert "<div id=\"root\">" in r.text
+
+
+# ------------------------------------------------------------------------ providers
+
+def test_api_config_reports_the_provider(tmp_path, monkeypatch):
+    monkeypatch.delenv("PRS_PROVIDER", raising=False)
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "dsk-secret")
+    _config(tmp_path, monkeypatch,
+            "provider: deepseek\nrepos:\n  sample-app: auto\n")
+    body = TestClient(app).get("/api/config").json()
+    assert body["provider"]["name"] == "deepseek"
+    assert body["provider"]["base_url"] == "https://api.deepseek.com/anthropic"
+    assert body["provider"]["structured_output"] == "prompt"
+    assert body["provider"]["token_present"] is True
+    assert body["provider"]["token_env"] == "DEEPSEEK_API_KEY"
+    assert "dsk-secret" not in TestClient(app).get("/api/config").text
+    assert "deepseek" in body["providers"] and "anthropic" in body["providers"]
+
+
+def test_api_config_flags_a_missing_token(tmp_path, monkeypatch):
+    monkeypatch.delenv("PRS_PROVIDER", raising=False)
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_AUTH_TOKEN", raising=False)
+    _config(tmp_path, monkeypatch,
+            "provider: deepseek\nrepos:\n  sample-app: auto\n")
+    body = TestClient(app).get("/api/config").json()
+    assert body["provider"]["token_present"] is False
+
+
+def test_switch_provider_writes_the_yaml(tmp_path, monkeypatch):
+    monkeypatch.delenv("PRS_PROVIDER", raising=False)
+    cfg_path = _config(tmp_path, monkeypatch)
+    client = TestClient(app)
+    assert client.post("/api/config/provider", json={"name": "glm"}).status_code == 200
+    assert load_config(cfg_path)["provider"] == "glm"
+    assert "token" not in cfg_path.read_text().lower()
+
+
+def test_switch_provider_rejects_an_unknown_name(tmp_path, monkeypatch):
+    _config(tmp_path, monkeypatch)
+    r = TestClient(app).post("/api/config/provider", json={"name": "nope"})
+    assert r.status_code == 400
+    assert "not built in" in r.json()["detail"]
+
+
+def test_trigger_review_uses_the_provider_auth_rule(tmp_path, monkeypatch):
+    monkeypatch.setattr("config.CLI_CONFIG", tmp_path / "no-cli.json")
+    monkeypatch.setenv("PRS_PROVIDER", "glm")
+    monkeypatch.delenv("ZAI_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_AUTH_TOKEN", raising=False)
+    _config(tmp_path, monkeypatch)
+    r = TestClient(app).post("/api/repos/demo/app/pr/8/review")
+    assert r.status_code == 400
+    assert "ZAI_API_KEY" in r.json()["detail"]

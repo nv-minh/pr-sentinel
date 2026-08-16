@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import type { ProviderInfo } from '../api'
 import { api } from '../api'
 import { Empty, Eyebrow, Ledger, Row, Tile } from '../components'
 
@@ -11,6 +12,8 @@ interface ConfigState {
   docs_fix_pr: boolean
   inline_suggestions: boolean
   gate: { verification_score_min: number }
+  provider: ProviderInfo
+  providers: string[]
   repos: { name: string; mode: string }[]
   config_path: string
 }
@@ -61,6 +64,40 @@ export function Config() {
         <Tile label="Posts comments" value={cfg.post_comment ? 'yes' : 'no'} />
         <Tile label="Writes doc PRs" value={cfg.docs_fix_pr ? 'yes' : 'no'} />
         <Tile label="Rewrites PR body" value={cfg.auto_describe ? 'yes' : 'no'} />
+      </div>
+
+      <Eyebrow>Model provider</Eyebrow>
+      {!cfg.provider.token_present && (
+        <div className="notice notice-fail">
+          No key for <code>{cfg.provider.name}</code> — set{' '}
+          <code>{cfg.provider.token_env}</code> in <code>.env</code>. Reviews will
+          refuse to start until it is there.
+        </div>
+      )}
+      <div className="tiles">
+        <Tile label="Provider" value={cfg.provider.name} note={cfg.provider.base_url} />
+        <Tile label="Deep dive" value={cfg.provider.model} />
+        <Tile label="Claims" value={cfg.provider.claims_model} />
+        <Tile
+          label="Schema"
+          value={cfg.provider.structured_output === 'native' ? 'enforced' : 'prompted'}
+          note={cfg.provider.structured_output === 'native'
+            ? 'the API validates the JSON'
+            : 'the reply is parsed and repaired'}
+        />
+        <Tile label="Key" value={cfg.provider.token_present ? 'set' : 'missing'}
+              note={cfg.provider.token_env} />
+        <Tile label="Costs" value={cfg.provider.reports_cost ? 'tracked' : 'unknown'}
+              note={cfg.provider.reports_cost ? '' : 'budget caps do not apply'} />
+      </div>
+      <div className="toolbar">
+        <select value={cfg.provider.name}
+                onChange={(e) => act(() => api.setProvider(e.target.value))}>
+          {cfg.providers.map((name) => (
+            <option key={name} value={name}>{name}</option>
+          ))}
+        </select>
+        <span className="linkish">tokens are read from the environment only</span>
       </div>
 
       <Eyebrow>Repositories</Eyebrow>
