@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
 import type { RepoRecord } from '../api'
-import { Empty, Eyebrow, Ledger, Row } from '../components'
+import { Empty, ErrorNotice, Eyebrow, Ledger, Loading, Row } from '../components'
 import { formatCost, formatScore } from '../status'
 import { navigate } from '../router'
 
@@ -13,16 +13,18 @@ export function Repos() {
     api.repos().then((d) => setRepos(d.repos)).catch((e) => setError(String(e.message)))
   }, [])
 
-  if (error) return <div className="notice notice-fail">Could not load repos — {error}</div>
-  if (!repos) return <div className="page-sub">Loading…</div>
+  if (error) return <ErrorNotice message={`Could not load repos — ${error}`} />
+  if (!repos) return <Loading label="Loading repositories" />
 
   const reviewed = repos.filter((r) => r.has_data)
   const waiting = repos.filter((r) => !r.has_data)
 
   return (
     <>
-      <h1 className="page-title">Every claim, checked against the code.</h1>
-      <p className="page-sub">
+      <h1 className="mb-1.5 text-[clamp(28px,4vw,40px)] font-[680] leading-[1.08] tracking-[-0.025em]">
+        Every claim, checked against the code.
+      </h1>
+      <p className="mb-7 font-mono text-[12.5px] tracking-[0.02em] text-ink-muted">
         {reviewed.length} repo{reviewed.length === 1 ? '' : 's'} reviewed ·{' '}
         {reviewed.reduce((n, r) => n + r.prs_total, 0)} pull requests on the record
       </p>

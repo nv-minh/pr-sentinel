@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api } from '../api'
 import type { RepoRecord } from '../api'
-import { Empty, Eyebrow, GateBand, Ledger, Row, Tile } from '../components'
+import { Empty, ErrorNotice, Eyebrow, GateBand, Ledger, Loading, Notice, Row, Tile, Tiles } from '../components'
 import { formatCost, formatScore } from '../status'
 import { navigate } from '../router'
+import { Button } from '@/components/ui/button'
 
 const STATUS_LABEL: Record<string, string> = {
   reviewed: 'Reviewed',
@@ -34,22 +35,24 @@ export function RepoDetail({ owner, repo }: { owner: string; repo: string }) {
     }
   }
 
-  if (error) return <div className="notice notice-fail">{error}</div>
-  if (!data) return <div className="page-sub">Loading…</div>
+  if (error) return <ErrorNotice message={error} />
+  if (!data) return <Loading label="Loading repository" />
 
   const byPr = new Map(data.prs.map((p) => [p.pr, p]))
   const unavailable = data.open_prs.some((row) => row.unavailable)
 
   return (
     <>
-      <h1 className="page-title">{owner}/{repo}</h1>
-      <p className="page-sub">
-        <a className="linkish" href={`https://github.com/${owner}/${repo}`}>
+      <h1 className="mb-1.5 text-[clamp(28px,4vw,40px)] font-[680] leading-[1.08] tracking-[-0.025em]">
+        {owner}/{repo}
+      </h1>
+      <p className="mb-7 font-mono text-[12.5px] tracking-[0.02em] text-ink-muted">
+        <a className="text-brand hover:underline" href={`https://github.com/${owner}/${repo}`}>
           github.com/{owner}/{repo}
         </a>
       </p>
 
-      <div className="tiles">
+      <Tiles>
         <Tile label="PRs reviewed" value={data.prs_total} />
         <Tile label="Verified" value={formatScore(data.avg_verification_score)}
               note="claims backed by file:line" />
@@ -57,16 +60,16 @@ export function RepoDetail({ owner, repo }: { owner: string; repo: string }) {
         <Tile label="Doc errors" value={data.doc_errors_total} />
         <Tile label="Breaking" value={data.breaking_total} note="API + schema contracts" />
         <Tile label="Spent" value={formatCost(data.cost_total)} />
-      </div>
+      </Tiles>
 
       <Eyebrow>Merge decisions</Eyebrow>
       <GateBand counts={data.gate_count} />
 
       <Eyebrow>Open pull requests</Eyebrow>
       {unavailable && (
-        <div className="notice">
+        <Notice>
           GitHub is unreachable — showing pull requests from stored reviews only.
-        </div>
+        </Notice>
       )}
       <Ledger>
         {data.open_prs.length === 0 ? (
@@ -97,13 +100,14 @@ export function RepoDetail({ owner, repo }: { owner: string; repo: string }) {
                 right={
                   <>
                     {rec ? formatScore(rec.verification_score) : '—'}{' '}
-                    <button
-                      className="button button-quiet"
+                    <Button
+                      variant="outline"
+                      size="sm"
                       disabled={busy === row.pr || row.status === 'reviewing'}
                       onClick={(e) => { e.stopPropagation(); review(row.pr) }}
                     >
                       {row.status === 'reviewed' ? 'Re-review' : 'Review now'}
-                    </button>
+                    </Button>
                   </>
                 }
                 onClick={() => navigate(`/repos/${owner}/${repo}/pr/${row.pr}`)}
