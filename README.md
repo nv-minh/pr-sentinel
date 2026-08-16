@@ -235,6 +235,23 @@ Cost control: `max_budget_usd` hard-stops a verify run, diff pruning keeps
 generated files out of context, and `--reply` resumes the previous session
 instead of starting over. `usage.json` records what each phase actually cost.
 
+### Review budget by tier
+
+A markdown fix and a change to the payment path should not cost the same review.
+With `tiered_budget: true` (the default) each PR is classified from the paths it
+touches, before any model call:
+
+| Tier | When | What it gets |
+|---|---|---|
+| trivial | only docs, markdown, text or stylesheets | the cheap model, low effort, 15 turns |
+| standard | anything else | the review model, medium effort, 60 turns |
+| critical | a path matching `gate.sensitive_areas`, or a contract file (`*.proto`, `*.sql`, anything named `openapi`/`swagger`/`schema.graphql`) | the review model, high effort, 90 turns, `Bash` enabled |
+
+The classification reuses `gate.sensitive_areas` rather than a second list, and
+the chosen tier is printed at the start of the run. Reasoning effort rides the
+Anthropic path; a third-party gateway may ignore it and reason at its own
+default.
+
 ## Safety
 
 The verify agent gets `Read`, `Grep` and `Glob` and nothing else — no writes, no

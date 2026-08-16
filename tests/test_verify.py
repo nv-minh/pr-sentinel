@@ -241,3 +241,16 @@ def test_run_verify_records_what_it_neutralized(tmp_path):
 
     run_verify({"model": "m"}, tmp_path / "ws", session_dir, poisoned, [], runner=runner)
     assert load_neutralized(session_dir)[0]["phase"] == "verify"
+
+
+def test_run_verify_forwards_the_effort(tmp_path):
+    captured = {}
+
+    def runner(prompt, **kw):
+        captured.update(kw)
+        return AgentResult(data=dict(FINDINGS), session_id="s", cost_usd=0.0,
+                           num_turns=1, duration_ms=1)
+
+    run_verify({"model": "m", "effort": "high"}, tmp_path / "ws", tmp_path / "s",
+               SNAPSHOT, [], runner=runner)
+    assert captured["effort"] == "high"

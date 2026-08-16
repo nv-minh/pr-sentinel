@@ -306,3 +306,44 @@ def test_the_ticket_comment_is_skipped_when_not_enabled(tmp_path, monkeypatch):
                         lambda *a, **kw: posted.append(a) or True)
     assert main(["demo/app", "7", "--no-post", "--skip-human"]) == 0
     assert posted == []
+
+
+def _snapshot_with(tmp_path, files):
+    def fake(owner, repo, n, session_dir, gh=None):
+        snap = {**SNAPSHOT, "files": files}
+        session_dir.mkdir(parents=True, exist_ok=True)
+        (session_dir / "snapshot.json").write_text(json.dumps(snap))
+        return snap
+    return fake
+
+
+def _capture_cfg(seen):
+    def fake(cfg, workspace, session_dir, snapshot, claims, ticket=None, runner=None):
+        seen["cfg"] = dict(cfg)
+        session_dir.mkdir(parents=True, exist_ok=True)
+        (session_dir / "findings.json").write_text(json.dumps(FINDINGS))
+        return dict(FINDINGS)
+    return fake
+
+
+def test_a_docs_only_pr_runs_on_the_trivial_tier(tmp_path, monkeypatch, capsys):
+    seen = {}
+    _patch_pipeline(monkeypatch, tmp_path, [], [])
+    monkeypatch.setattr("snapshot.build_snapshot", _snapshot_with(
+        tmp_path, [{"filename": "README.md", "additions": 3, "deletions": 1}]))
+    monkeypatch.setattr("verify.run_verify", _capture_cfg(seen))
+    assert main(["demo/app", "7", "--no-post", "--skip-human"]) == 0
+    assert seen["cfg"]["effort"] == "low"
+    assert seen["cfg"]["allow_bash"] is False
+    assert "tier trivial" in capsys.readouterr().out
+
+
+def test_a_sensitive_pr_runs_on_the_critical_tier(tmp_path, monkeypatch):
+    seen = {}
+    _patch_pipeline(monkeypatch, tmp_path, [], [])
+    monkeypatch.setattr("snapshot.build_snapshot", _snapshot_with(
+        tmp_path, [{"filename": "src/auth/login.py", "additions": 3, "deletions": 1}]))
+    monkeypatch.setattr("verify.run_verify", _capture_cfg(seen))
+    assert main(["demo/app", "7", "--no-post", "--skip-human"]) == 0
+    assert seen["cfg"]["effort"] == "high"
+    assert seen["cfg"]["allow_bash"] is True

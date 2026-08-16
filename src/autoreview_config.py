@@ -21,6 +21,7 @@ DEFAULTS = {
     "provider": "anthropic",
     "providers": {},
     # Review behaviour
+    "tiered_budget": True,     # route each review's effort by what it touches
     "allow_bash": False,        # let the agent run git/grep in the workspace
     "max_turns": 60,
     "max_budget_usd": None,     # hard stop on the cost of one verify run

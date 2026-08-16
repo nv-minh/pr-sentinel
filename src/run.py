@@ -193,11 +193,24 @@ def main(argv: list[str] | None = None) -> int:
             from describe import comment_section, draft_description, needs_description
             from snapshot import build_snapshot
             from tickets import fetch_tickets
+            from tiers import classify, settings as tier_settings
             from verify import run_verify, setup_workspace
 
             snapshot = _load_or_skip("snapshot.json", session_dir, args.force)
             if snapshot is None:
                 snapshot = build_snapshot(owner, repo, int(num), session_dir)
+
+            if review_cfg.get("tiered_budget", True):
+                tier = classify(snapshot, review_cfg.get("gate"))
+                knobs = tier_settings(tier)
+                cfg["effort"] = knobs["effort"]
+                cfg["max_turns"] = knobs["max_turns"]
+                cfg["allow_bash"] = knobs["allow_bash"]
+                if knobs["use_claims_model"]:
+                    cfg["model"] = cfg["claims_model"]
+                print(f"[run] tier {tier}: effort {knobs['effort']}, "
+                      f"max_turns {knobs['max_turns']}, "
+                      f"bash {'on' if knobs['allow_bash'] else 'off'}")
 
             ticket = _load_or_skip("ticket.json", session_dir, args.force)
             if ticket is None:
