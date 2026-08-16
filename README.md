@@ -87,9 +87,9 @@ env:
 run: python -m src.run "$GITHUB_REPOSITORY" "$PR_NUMBER" --ci --force
 ```
 
-The job caches `sessions/` between runs of the same PR, so a comment triggers a
-follow-up that resumes the previous conversation. Without that cache the runner
-starts empty and every comment pays for a full review.
+The job saves `sessions/` as an artifact after each review, so a later comment
+triggers a follow-up that restores it and resumes the conversation. Without that
+artifact the runner starts empty and every comment pays for a full review.
 
 The gate is configured in `prsentinel.yml`:
 
