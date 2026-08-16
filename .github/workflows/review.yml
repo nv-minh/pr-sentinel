@@ -29,6 +29,11 @@ jobs:
       PR_NUMBER: ${{ github.event.pull_request.number || github.event.issue.number }}
     steps:
       - uses: actions/checkout@v6
+        with:
+          # On a comment event the default ref is the default branch; the
+          # review must run the PR's code, exactly like the push event does.
+          ref: ${{ github.event_name == 'issue_comment'
+                  && format('refs/pull/{0}/head', env.PR_NUMBER) || github.sha }}
 
       - name: Restore review state
         env:
