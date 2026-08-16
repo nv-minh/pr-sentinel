@@ -6,9 +6,11 @@ post_comment: true
 skip_human: true
 drafts: false
 skip_bots: true
-# Where LLM calls go. Built in: anthropic (default), deepseek, glm.
-# Tokens are NEVER stored here — set them in .env:
-#   anthropic -> ANTHROPIC_API_KEY   deepseek -> DEEPSEEK_API_KEY   glm -> ZAI_API_KEY
+# Where LLM calls go. Built in:
+#   anthropic (default) -> api.anthropic.com                -> ANTHROPIC_API_KEY
+#   deepseek            -> https://api.deepseek.com/anthropic -> DEEPSEEK_API_KEY
+#   glm (Z.ai)          -> https://api.z.ai/api/anthropic     -> ZAI_API_KEY
+# Tokens are NEVER stored here — set them in .env.
 provider: anthropic
 providers: {}
 # Example of a gateway that is not built in — every key below is required:

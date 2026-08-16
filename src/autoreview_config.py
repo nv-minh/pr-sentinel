@@ -134,12 +134,10 @@ def list_repos(path: Path, gh=None) -> list[dict]:
 
 
 def set_provider(path: Path, name: str) -> dict:
-    """Switch the active provider. Writes only the `provider:` key."""
+    """Switch the active provider. Never writes a token: the file records only
+    which provider is active and where it points."""
     cfg = load_config(path)
     providers.build(name, cfg["providers"].get(name))
-    if name not in providers.BUILTIN and name not in cfg["providers"]:
-        raise ValueError(f"provider {name!r} is not built in and not defined "
-                         f"under providers:")
     cfg["provider"] = name
     _write_atomic(path, cfg)
     return cfg
