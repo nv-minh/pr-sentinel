@@ -8,7 +8,7 @@ from gh import gh_available, run_gh
 def test_run_gh_json(monkeypatch):
     captured = {}
 
-    def fake_run(cmd, capture_output, text):
+    def fake_run(cmd, capture_output, text, input=None):
         captured["cmd"] = cmd
         assert text is True
         return type("R", (), {"returncode": 0, "stdout": json.dumps({"ok": 1}), "stderr": ""})()
@@ -20,7 +20,7 @@ def test_run_gh_json(monkeypatch):
 
 
 def test_run_gh_error(monkeypatch):
-    def fake_run(cmd, capture_output, text):
+    def fake_run(cmd, capture_output, text, input=None):
         return type("R", (), {"returncode": 1, "stdout": "", "stderr": "not found"})()
 
     monkeypatch.setattr("gh.subprocess.run", fake_run)
@@ -29,7 +29,7 @@ def test_run_gh_error(monkeypatch):
 
 
 def test_run_gh_invalid_json(monkeypatch):
-    def fake_run(cmd, capture_output, text):
+    def fake_run(cmd, capture_output, text, input=None):
         return type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})()
 
     monkeypatch.setattr("gh.subprocess.run", fake_run)
@@ -38,7 +38,7 @@ def test_run_gh_invalid_json(monkeypatch):
 
 
 def test_gh_available(monkeypatch):
-    def fake_run(cmd, capture_output, text):
+    def fake_run(cmd, capture_output, text, input=None):
         return type("R", (), {"returncode": 0, "stdout": "1\n", "stderr": ""})()
 
     monkeypatch.setattr("gh.subprocess.run", fake_run)
