@@ -40,6 +40,9 @@ describe('primitives', () => {
     render(<GateBand counts={{ pass: 2, warn: 0, fail: 1, unknown: 0 }} />)
     expect(container.querySelectorAll('.band-seg')).toHaveLength(2)
     expect(container.textContent).toContain('Clear to merge')
+    const wrapper = container.querySelector('[role="img"]') as HTMLElement
+    expect(wrapper).not.toBeNull()
+    expect(wrapper.getAttribute('aria-label')).toBe('2 Clear to merge, 1 Blocked')
   })
 
   it('says so when there is nothing to band', () => {
@@ -57,6 +60,20 @@ describe('primitives', () => {
     expect(hits).toBe(1)
   })
 
+  it('activates a row on keyboard Enter and Space, not just click', () => {
+    let hits = 0
+    render(<Row status="PASS" title="t" onClick={() => { hits += 1 }} />)
+    const row = container.querySelector('.row') as HTMLElement
+    act(() => {
+      row.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
+    })
+    expect(hits).toBe(1)
+    act(() => {
+      row.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true }))
+    })
+    expect(hits).toBe(2)
+  })
+
   it('renders a tile with its label and note', () => {
     render(<Tile label="Gate" value="fail" note="Blocked" />)
     expect(container.textContent).toContain('Gate')
@@ -68,5 +85,7 @@ describe('primitives', () => {
     expect(container.textContent).toContain('nothing here')
     expect(container.textContent).toContain('Loading')
     expect(container.textContent).toContain('boom')
+    expect(container.querySelector('[role="status"]')).not.toBeNull()
+    expect(container.querySelector('[role="alert"]')).not.toBeNull()
   })
 })
