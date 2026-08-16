@@ -78,7 +78,14 @@ def fetch_tickets(snapshot: dict, session_dir: Path, jira_cfg: dict, *,
             kwargs = {"opener": opener} if opener is not None else {}
             missed = []
             for key in keys:
-                issue = jira_client.get_issue(cfg, key, **kwargs)
+                try:
+                    issue = jira_client.get_issue(cfg, key, **kwargs)
+                except Exception as e:  # noqa: BLE001 — see below
+                    # The outermost boundary of an optional integration. Jira is
+                    # context, never a gate: anything that escapes the client
+                    # costs this review its requirement text and nothing more.
+                    print(f"[tickets] {key} lookup raised: {e}")
+                    issue = None
                 if issue is None:
                     missed.append(key)
                 else:

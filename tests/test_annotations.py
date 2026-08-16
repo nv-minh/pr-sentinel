@@ -141,3 +141,47 @@ def test_split_caps_the_number_of_inline_comments():
 
 def test_the_default_cap_is_exported():
     assert isinstance(MAX_INLINE, int) and MAX_INLINE > 0
+
+
+def test_a_failed_claim_without_a_line_anchors_to_the_files_first_diff_line():
+    """Evidence naming a file but no line is still placeable, like a contract is."""
+    findings = {"claims": [{"id": "C9", "status": "FAIL", "evidence": ["src/a.py"],
+                            "note": "no line number"}]}
+    cands = candidates(findings)
+    assert len(cands) == 1 and cands[0]["line"] is None
+    inline, leftover = split(cands, diff_lines(SNAPSHOT))
+    assert inline[0]["line"] == 1 and "C9" in inline[0]["body"]
+    assert leftover == []
+
+
+def test_a_failed_claim_naming_a_file_outside_the_diff_reaches_leftover():
+    """Unanchorable is not the same as uninteresting — it belongs in the summary."""
+    findings = {"claims": [{"id": "C7", "status": "FAIL", "evidence": ["gone.py"],
+                            "note": "not in this diff"}]}
+    inline, leftover = split(candidates(findings), diff_lines(SNAPSHOT))
+    assert inline == [] and "C7" in leftover[0]["body"]
+
+
+def test_a_failed_claim_with_no_evidence_at_all_still_reaches_leftover():
+    findings = {"claims": [{"id": "C8", "status": "FAIL", "evidence": [],
+                            "note": "nothing to cite"}]}
+    inline, leftover = split(candidates(findings), diff_lines(SNAPSHOT))
+    assert inline == [] and "C8" in leftover[0]["body"]
+
+
+def test_a_broken_caller_without_a_line_still_reaches_leftover():
+    findings = {"callers_outside_diff": [
+        {"symbol": "charge", "defined_at": "src/pay.py", "callers": [], "risk": "BROKEN",
+         "note": "moved"}]}
+    inline, leftover = split(candidates(findings), diff_lines(SNAPSHOT))
+    assert inline == [] and "charge" in leftover[0]["body"]
+
+
+def test_the_cap_is_filled_in_list_order():
+    """run.py relies on this: whichever source it concatenates first wins the cap."""
+    index = {"src/a.py": {1, 2}}
+    first = {"path": "src/a.py", "line": 1, "body": "first"}
+    second = {"path": "src/a.py", "line": 2, "body": "second"}
+    inline, leftover = split([first, second], index, cap=1)
+    assert inline[0]["body"] == "first"
+    assert leftover[0]["body"] == "second"

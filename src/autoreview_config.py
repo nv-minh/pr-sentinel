@@ -82,6 +82,12 @@ def validate_config(cfg: dict) -> None:
         raise ValueError("jira.projects must be a list of project keys, e.g. [ABC, PRJ]")
     if not isinstance(jira_cfg.get("comment_result"), bool):
         raise ValueError("jira.comment_result must be true or false")
+    if not isinstance(cfg.get("poc_tests"), bool):
+        raise ValueError("poc_tests must be true or false")
+    cap = cfg.get("max_inline_comments")
+    # bool first: True is an int, and would otherwise pass as a cap of 1.
+    if isinstance(cap, bool) or not isinstance(cap, int) or cap < 1:
+        raise ValueError("max_inline_comments must be a positive integer")
     providers.validate(cfg)
 
 

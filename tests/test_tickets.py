@@ -164,3 +164,15 @@ def test_fetch_uses_the_configured_project_allowlist(tmp_path, monkeypatch):
     snap = {"title": "ZZZ-1: work", "body": "", "head": ""}
     fetch_tickets(snap, tmp_path, {"projects": ["ZZZ"]}, config=CONFIGURED)
     assert calls == ["ZZZ-1"]
+
+
+def test_a_lookup_that_raises_is_recorded_not_propagated(tmp_path, monkeypatch):
+    def boom(cfg, key, **kw):
+        raise RuntimeError("jira exploded")
+
+    monkeypatch.setattr(jira_client, "get_issue", boom)
+    snap = {"title": "ABC-9: work", "body": "", "head": ""}
+    result = fetch_tickets(snap, tmp_path, JIRA_CFG, config=CONFIGURED)
+    assert result["tickets"] == []
+    assert "ABC-9" in result["skipped"]
+    assert json.loads((tmp_path / "ticket.json").read_text()) == result

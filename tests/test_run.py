@@ -403,3 +403,60 @@ def test_a_broken_finding_triggers_the_poc_pass(tmp_path, monkeypatch):
                         lambda *a, **kw: called.append(1) or [])
     assert main(["demo/app", "7", "--no-post", "--skip-human"]) == 0
     assert called == [1]
+
+
+def test_the_generated_test_appears_once_in_the_comment(tmp_path, monkeypatch):
+    """report.md carries the PoC block, and the comment nests report.md — so
+    folding it into `extra` as well would show the author the same test twice."""
+    bodies = []
+    broken_findings = {**FINDINGS, "callers_outside_diff": [
+        {"symbol": "charge", "defined_at": "a.py:1", "callers": [], "risk": "BROKEN",
+         "note": "n"}]}
+    _patch_pipeline(monkeypatch, tmp_path, [], [])
+
+    def fake_verify(cfg, workspace, session_dir, snapshot, claims, ticket=None, runner=None):
+        session_dir.mkdir(parents=True, exist_ok=True)
+        (session_dir / "findings.json").write_text(json.dumps(broken_findings))
+        return dict(broken_findings)
+
+    def fake_pocs(findings, cfg, workspace, session_dir, runner=None):
+        pocs = [{"target": "a.py", "framework": "pytest",
+                 "test_code": "def test_charge(): assert False",
+                 "why_it_fails": "charge() returns 1"}]
+        session_dir.mkdir(parents=True, exist_ok=True)
+        (session_dir / "poc.json").write_text(json.dumps(pocs))
+        return pocs
+
+    monkeypatch.setattr("verify.run_verify", fake_verify)
+    monkeypatch.setattr("poc.draft_pocs", fake_pocs)
+    monkeypatch.setattr("run.post_comment",
+                        lambda o, r, n, body, **kw: bodies.append(body) or True)
+    monkeypatch.setattr("gh.post_review", lambda *a, **kw: True)
+
+    assert main(["demo/app", "7", "--skip-human"]) == 0
+    assert bodies[0].count("not been executed") == 1
+    assert bodies[0].count("def test_charge") == 1
+
+
+def test_findings_win_the_inline_cap_over_doc_suggestions(tmp_path, monkeypatch):
+    """A breaking contract blocks the merge; a stale doc does not. With one slot
+    left, the finding takes it and the doc falls back to the summary comment."""
+    posted, bodies = [], []
+    _patch_pipeline(monkeypatch, tmp_path, [], [])
+    real_cfg = run.load_review_config
+    monkeypatch.setattr("run.load_review_config",
+                        lambda *a, **kw: {**real_cfg(), "max_inline_comments": 1})
+    monkeypatch.setattr("run.post_comment",
+                        lambda o, r, n, body, **kw: bodies.append(body) or True)
+    monkeypatch.setattr("gh.post_review", lambda *a, **kw: posted.append(kw) or True)
+    monkeypatch.setattr("annotations.diff_lines", lambda snapshot: {"src/a.py": {1, 2}})
+    monkeypatch.setattr("annotations.candidates",
+                        lambda findings: [{"path": "src/a.py", "line": 2,
+                                           "body": "BREAKING_API_CHANGE"}])
+    monkeypatch.setattr(
+        "run._remediate",
+        lambda *a, **kw: ("", [{"path": "src/a.py", "line": 1, "body": "doc suggestion"}]))
+
+    assert main(["demo/app", "7", "--skip-human"]) == 0
+    assert [c["body"] for c in posted[0]["comments"]] == ["BREAKING_API_CHANGE"]
+    assert "doc suggestion" in bodies[0]

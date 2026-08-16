@@ -294,17 +294,15 @@ def main(argv: list[str] | None = None) -> int:
                                                snapshot, findings, post)
             extra_comment = "\n\n".join(x for x in (extra_comment, section) if x)
 
-            if review_cfg.get("poc_tests", True) and poc.broken(findings):
-                pocs = _load_or_skip("poc.json", session_dir, args.force)
-                if pocs is None:
-                    try:
-                        pocs = poc.draft_pocs(findings, cfg, session_dir / "workspace",
-                                              session_dir)
-                    except RuntimeError as e:
-                        print(f"[run] PoC test drafting failed: {e}", file=sys.stderr)
-                        pocs = []
-                extra_comment = "\n\n".join(
-                    x for x in (extra_comment, poc.comment_section(pocs)) if x)
+            # The pass writes poc.json; build_report reads it back and renders the
+            # tests. Deliberately not folded into extra_comment as well — the
+            # comment nests the whole report, so that showed the same test twice.
+            if (review_cfg.get("poc_tests", True) and poc.broken(findings)
+                    and _load_or_skip("poc.json", session_dir, args.force) is None):
+                try:
+                    poc.draft_pocs(findings, cfg, session_dir / "workspace", session_dir)
+                except RuntimeError as e:
+                    print(f"[run] PoC test drafting failed: {e}", file=sys.stderr)
 
         report = build_report(snapshot, claims, findings, answers, session_dir,
                               scores=scores, cost_usd=total_cost(session_dir))
@@ -313,8 +311,11 @@ def main(argv: list[str] | None = None) -> int:
               f"{scores['verification_score']:.0%} | risk {scores['business_risk']}")
 
         import annotations
+        # Findings first: a broken caller or a breaking contract is what blocks the
+        # merge, and the cap is contested. split() fills it in list order, so doc
+        # suggestions take what is left and reach the author via the summary.
         inline, orphans = annotations.split(
-            doc_comments + annotations.candidates(findings),
+            annotations.candidates(findings) + doc_comments,
             annotations.diff_lines(snapshot),
             cap=review_cfg.get("max_inline_comments", annotations.MAX_INLINE))
         if orphans:

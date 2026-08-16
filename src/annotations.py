@@ -68,21 +68,25 @@ def candidates(findings: dict) -> list[dict]:
     for claim in findings.get("claims") or []:
         if claim.get("status") not in ("FAIL", "PARTIAL"):
             continue
-        ref = next((parse_ref(e) for e in claim.get("evidence") or []
-                    if parse_ref(e)), None)
-        if ref:
-            out.append({"path": ref[0], "line": ref[1],
-                        "body": f"**Claim {claim['id']} — {claim['status']}**\n\n"
-                                f"{claim.get('note', '')}"})
+        evidence = claim.get("evidence") or []
+        ref = next((parse_ref(e) for e in evidence if parse_ref(e)), None)
+        # No usable file:line still yields a candidate: split() routes it to
+        # leftover, where the summary comment reports it. Dropping it here would
+        # lose the finding from both surfaces.
+        path, line = ref if ref else (_file_of(evidence[0]) if evidence else "", None)
+        out.append({"path": path, "line": line,
+                    "body": f"**Claim {claim['id']} — {claim['status']}**\n\n"
+                            f"{claim.get('note', '')}"})
 
     for caller in findings.get("callers_outside_diff") or []:
         if caller.get("risk") not in ("BROKEN", "NEEDS_UPDATE"):
             continue
-        ref = parse_ref(caller.get("defined_at", ""))
-        if not ref:
-            continue
+        defined_at = caller.get("defined_at", "")
+        ref = parse_ref(defined_at)
+        # As above: an unparseable definition still reaches the summary.
+        path, line = ref if ref else (_file_of(defined_at), None)
         sites = "\n".join(f"- `{c}`" for c in caller.get("callers") or []) or "- (none listed)"
-        out.append({"path": ref[0], "line": ref[1],
+        out.append({"path": path, "line": line,
                     "body": f"**Caller impact — {caller['risk']}**\n\n"
                             f"`{caller.get('symbol', '?')}` changed here. Callers this "
                             f"PR does not touch:\n{sites}\n\n{caller.get('note', '')}"})

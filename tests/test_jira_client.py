@@ -147,3 +147,33 @@ def test_writes_return_false_on_failure():
 def test_writes_return_false_when_unconfigured():
     unset = jira_client.JiraConfig(base_url="", email="", token="")
     assert jira_client.add_comment(unset, "ABC-1", "x", opener=_boom) is False
+
+
+class _RawResp:
+    """A response whose body is not valid UTF-8 — a proxy or error page can do this."""
+
+    def __init__(self, raw):
+        self._raw = raw
+
+    def read(self):
+        return self._raw
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
+def test_get_issue_returns_none_on_a_non_utf8_body():
+    def opener(req, timeout=None):
+        return _RawResp(b"\xff\xfe\x00")
+
+    assert jira_client.get_issue(CFG, "ABC-1", opener=opener) is None
+
+
+def test_list_comments_is_empty_on_a_non_utf8_body():
+    def opener(req, timeout=None):
+        return _RawResp(b"\xff\xfe\x00")
+
+    assert jira_client.list_comments(CFG, "ABC-1", opener=opener) == []

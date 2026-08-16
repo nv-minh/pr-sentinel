@@ -66,7 +66,11 @@ def _request(cfg: JiraConfig, path: str, *, method: str = "GET",
         return {}
     try:
         return json.loads(body)
-    except json.JSONDecodeError as e:
+    except ValueError as e:
+        # ValueError, not JSONDecodeError: a body that is not valid UTF-8 raises
+        # UnicodeDecodeError, which JSONDecodeError does not cover. Letting that
+        # escape would fail the whole review — main() catches ValueError and
+        # writes a failure report — for a Jira hiccup that must only degrade it.
         print(f"[jira] {method} {path} returned invalid JSON: {e}")
         return None
 

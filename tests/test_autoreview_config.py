@@ -227,3 +227,32 @@ def test_language_defaults_to_english(tmp_path):
 def test_language_must_be_en_or_vi(tmp_path):
     with pytest.raises(ValueError, match="language"):
         load_config(_write(tmp_path / "a.yml", "language: fr\n"))
+
+
+def test_poc_tests_must_be_a_bool(tmp_path):
+    path = tmp_path / "c.yml"
+    path.write_text("poc_tests: sometimes\n")
+    with pytest.raises(ValueError, match="poc_tests"):
+        load_config(path)
+
+
+def test_max_inline_comments_must_be_a_positive_int(tmp_path):
+    path = tmp_path / "c.yml"
+    path.write_text("max_inline_comments: '20'\n")
+    with pytest.raises(ValueError, match="max_inline_comments"):
+        load_config(path)
+
+
+def test_max_inline_comments_rejects_zero(tmp_path):
+    path = tmp_path / "c.yml"
+    path.write_text("max_inline_comments: 0\n")
+    with pytest.raises(ValueError, match="max_inline_comments"):
+        load_config(path)
+
+
+def test_max_inline_comments_rejects_a_bool(tmp_path):
+    """True is an int in Python and would otherwise sail through as a cap of 1."""
+    path = tmp_path / "c.yml"
+    path.write_text("max_inline_comments: true\n")
+    with pytest.raises(ValueError, match="max_inline_comments"):
+        load_config(path)
