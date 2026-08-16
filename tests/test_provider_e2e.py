@@ -20,16 +20,27 @@ SNAPSHOT = {
     "commits": [], "threads": [], "pruned": [],
 }
 
-CLAIMS_REPLY = json.dumps({"claims": [
-    {"id": "C1", "text": "Caches the price lookup", "category": "perf",
-     "files": ["src/pricing.py"], "docs": []}]})
+# Wrapped in fences and prose the way a real gateway replies, so the test
+# exercises extract_json's fence-stripping instead of a bare json.loads.
+CLAIMS_REPLY = (
+    "Sure — here are the verifiable claims:\n\n```json\n"
+    + json.dumps({"claims": [
+        {"id": "C1", "text": "Caches the price lookup", "category": "perf",
+         "files": ["src/pricing.py"], "docs": []}]})
+    + "\n```\n\nLet me know if you want them split finer."
+)
 
-FINDINGS_REPLY = json.dumps({
-    "claims": [{"id": "C1", "status": "PASS", "evidence": ["src/pricing.py:12"],
-                "note": "", "confidence": 0.9}],
-    "docs": [], "impact": [], "callers_outside_diff": [], "contracts": [],
-    "tests": [], "threads": [], "unresolved_questions": [],
-})
+FINDINGS_REPLY = (
+    "Here is the completed findings object:\n\n```json\n"
+    + json.dumps({
+        "claims": [{"id": "C1", "status": "PASS",
+                    "evidence": ["src/pricing.py:12"], "note": "",
+                    "confidence": 0.9}],
+        "docs": [], "impact": [], "callers_outside_diff": [], "contracts": [],
+        "tests": [], "threads": [], "unresolved_questions": [],
+    })
+    + "\n```"
+)
 
 
 def _sdk(monkeypatch, replies):
@@ -63,8 +74,10 @@ def test_prompt_mode_provider_completes_claims_and_verify(tmp_path, monkeypatch)
     assert (tmp_path / "findings.json").exists()
 
     # The schema travelled in the prompt, because the gateway cannot enforce it.
-    assert "ONE JSON object" in prompts[0]
-    assert "unresolved_questions" in prompts[1]
+    # Assert the serialized schema itself — prose markers recur in the phase
+    # prompts independently of compat_prompt, so they prove nothing.
+    assert json.dumps(claims_mod.CLAIMS_SCHEMA, indent=2) in prompts[0]
+    assert json.dumps(verify_mod.FINDINGS_SCHEMA, indent=2) in prompts[1]
 
     # Cost is not invented for a provider that cannot price itself.
     usage = json.loads((tmp_path / "usage.json").read_text())
