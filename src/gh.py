@@ -3,12 +3,13 @@ import json as _json
 import subprocess
 
 
-def _run_gh_impl(args: list[str]) -> subprocess.CompletedProcess:
-    return subprocess.run(["gh", *args], capture_output=True, text=True)
+def _run_gh_impl(args: list[str], stdin: str | None = None) -> subprocess.CompletedProcess:
+    return subprocess.run(["gh", *args], capture_output=True, text=True, input=stdin)
 
 
-def run_gh(args: list[str], *, json: bool = True) -> dict | list:
-    proc = _run_gh_impl(args + (["--jq", "."] if json else []))
+def run_gh(args: list[str], *, json: bool = True,
+           stdin: str | None = None) -> dict | list:
+    proc = _run_gh_impl(args + (["--jq", "."] if json else []), stdin)
     if proc.returncode != 0:
         raise RuntimeError(f"gh api failed: {proc.stderr.strip()}")
     if not json:
@@ -77,3 +78,34 @@ def create_check_run(owner: str, repo: str, head_sha: str, *, name: str,
             "-f", f"output[title]={title}", "-f", f"output[summary]={summary}"])
     except RuntimeError as e:
         print(f"[gh] could not create check run: {e}")
+
+
+def post_review(owner: str, repo: str, n: int, *, commit_id: str,
+                comments: list[dict], body: str = "", gh=run_gh) -> bool:
+    """Post every inline comment as ONE review event.
+
+    N separate comment calls produce N notifications; a reviewer who gets pinged
+    twelve times for one review learns to mute the bot. The event is COMMENT
+    rather than REQUEST_CHANGES — the gate already blocks the merge through a
+    check run, and a bot that also formally requests changes fights branch
+    protection instead of informing it.
+
+    Returns False when GitHub rejects the batch, so the caller can fall back to
+    the summary comment.
+    """
+    if not comments:
+        return False
+    payload = {
+        "commit_id": commit_id,
+        "event": "COMMENT",
+        "body": body,
+        "comments": [{"path": c["path"], "line": c["line"], "side": "RIGHT",
+                      "body": c["body"]} for c in comments],
+    }
+    try:
+        gh(["api", f"repos/{owner}/{repo}/pulls/{n}/reviews", "-X", "POST",
+            "--input", "-"], stdin=_json.dumps(payload))
+        return True
+    except RuntimeError as e:
+        print(f"[gh] review batch rejected ({len(comments)} comment(s)): {e}")
+        return False
