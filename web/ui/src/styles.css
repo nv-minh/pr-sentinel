@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "tw-animate-css";
 
 /* The theme toggle writes data-theme on <html>. Tailwind v4 points `dark:` at
    prefers-color-scheme by default, so repoint it at the attribute — the user's
