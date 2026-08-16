@@ -176,7 +176,7 @@ export function Loading({ label = 'Loading' }: { label?: string }) {
   )
 }
 
-export function ErrorNotice({ message }: { message: string }) {
+export function ErrorNotice({ message }: { message: ReactNode }) {
   return (
     <div className="my-4 border-l-2 border-fail py-2 pl-3 font-mono text-[12.5px] text-ink"
          role="alert">

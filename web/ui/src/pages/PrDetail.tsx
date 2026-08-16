@@ -28,9 +28,13 @@ const TABS: { key: TabKey; label: string }[] = [
   { key: 'context', label: 'Context' },
 ]
 
-/** Every finding severe enough to block a merge, most severe group first.
- *  Each row answers "why" and links straight to the tab that has the detail —
- *  the point being that a blocking risk should never be three clicks away. */
+/** Every finding severe enough to block a merge. All seven blocking statuses
+ *  share the same 'fail' tone (see status.ts) — there is no severity field to
+ *  sort by, so this is a fixed category order, not a computed one: contracts
+ *  and callers first, since an API-breaking change has the widest blast
+ *  radius, then claims, impact, docs, tests. Each row answers "why" and links
+ *  straight to the tab that has the detail — the point being that a blocking
+ *  risk should never be three clicks away. */
 const BLOCKING: {
   tab: TabKey
   label: string

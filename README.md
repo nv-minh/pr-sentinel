@@ -187,10 +187,14 @@ This workstream never changes a ticket's status, fields or description.
 PRS_SESSION_ROOT=sessions python -m web.server     # http://127.0.0.1:6789
 ```
 
-A ledger over `sessions/` — no database. Repo list → repo detail (KPIs,
-merge-decision band, open PRs) → PR detail (Claims / Docs / Impact / Callers /
-Contracts / Tests / Threads / Confirm / Context). Reviews started from the
-dashboard run in the background; the page follows the log until they finish.
+A read-only ledger over `sessions/` — no database. Repo list → repo detail
+(KPIs, merge-decision band, open PRs) → PR detail, which opens on the review
+pipeline as a graph: Snapshot → Describe → Claims → Verify → Score → Confirm →
+Report, with the doc-fix branch off Verify and the reply loop back into it. Each
+node carries its own status, cost and headline counts; clicking one opens that
+phase's evidence below. Blocking findings are listed above the tabs, most severe
+first. Reviews started from the dashboard run in the background and the graph
+follows them live.
 A provider panel shows which gateway is active, whether its key is present, and
 can switch providers (the switch rewrites the one `provider:` line in
 `prsentinel.yml` — tokens never enter the file).

@@ -48,7 +48,7 @@ export function Config() {
   if (error && !cfg) {
     return (
       <ErrorNotice
-        message={`${error} — create prsentinel.yml next to the repo, or point PRSENTINEL_CONFIG at it.`}
+        message={<>{error} — create <code>prsentinel.yml</code> next to the repo, or point <code>PRSENTINEL_CONFIG</code> at it.</>}
       />
     )
   }
