@@ -369,7 +369,7 @@ def spa(full_path: str):
             status_code=503,
             detail="dashboard not built — run `npm ci && npm run build` in web/ui")
     candidate = (UI_DIST / full_path).resolve()
-    if full_path and candidate.is_file() and str(candidate).startswith(str(UI_DIST.resolve())):
+    if full_path and candidate.is_file() and candidate.is_relative_to(UI_DIST.resolve()):
         return FileResponse(candidate)
     return FileResponse(index)
 

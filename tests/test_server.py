@@ -357,6 +357,22 @@ def test_spa_reports_an_unbuilt_dashboard(client, tmp_path, monkeypatch):
     assert "npm run build" in r.json()["detail"]
 
 
+def test_spa_does_not_serve_a_sibling_of_dist(tmp_path, monkeypatch):
+    """A path escaping UI_DIST must fall through to index.html, not the file."""
+    from web.server import spa
+
+    root = tmp_path / "ui"
+    root.mkdir()
+    (root / "index.html").write_text('<div id="root"></div>')
+    sibling = tmp_path / "ui-extra"
+    sibling.mkdir()
+    (sibling / "secret.txt").write_text("secret")
+
+    monkeypatch.setattr("web.server.UI_DIST", root)
+    resp = spa("../ui-extra/secret.txt")
+    assert Path(resp.path).resolve() == (root / "index.html").resolve()
+
+
 @pytest.mark.skipif(not (Path(__file__).resolve().parents[1] / "web/ui/dist/index.html").exists(),
                     reason="dashboard not built")
 def test_spa_serves_client_routes(client):
