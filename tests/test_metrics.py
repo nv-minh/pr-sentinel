@@ -311,6 +311,24 @@ def test_a_live_lock_marks_the_first_unfinished_phase_running(tmp_path, monkeypa
     assert _by_id(graph)["verify"]["status"] == "running"
 
 
+def test_a_live_lock_during_doc_remediation_marks_remediate_running(tmp_path):
+    # Regression for ORDER omitting "remediate": once score.json and
+    # answers.json exist and a doc is fixable, remediate — not report — is
+    # the phase actually running.
+    d = _session(tmp_path,
+                 snapshot__json={"body": "x" * 200},
+                 claims__json=[{"id": "C1"}],
+                 findings__json={"docs": [{"path": "README.md", "status": "STALE"}]},
+                 score__json={"gate": "pass", "verification_score": 0.9},
+                 answers__json=[])
+    (d / "review.lock").write_text(json.dumps({"pid": os.getpid(),
+                                               "started_at": "2026-08-16T10:00:00"}))
+    graph = metrics.pipeline_graph(tmp_path, "demo", "app", 8)
+    nodes = _by_id(graph)
+    assert nodes["remediate"]["status"] == "running"
+    assert nodes["report"]["status"] == "pending"
+
+
 def test_edges_form_the_documented_dag(tmp_path):
     _session(tmp_path, snapshot__json={"body": "x" * 200})
     edges = {(e["source"], e["target"])

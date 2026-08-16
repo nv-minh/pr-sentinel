@@ -370,7 +370,7 @@ EDGES = (
 )
 
 # The path a run actually walks, used to decide which node is the live one.
-ORDER = ("snapshot", "describe", "claims", "verify", "score", "ask", "report")
+ORDER = ("snapshot", "describe", "claims", "verify", "score", "ask", "remediate", "report")
 
 
 def _phase_skipped(phase_id: str, snapshot: dict, findings: dict) -> bool:
