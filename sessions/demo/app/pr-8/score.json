@@ -1,0 +1,15 @@
+{
+  "verification_score": 0.333,
+  "doc_drift": ["docs/checkout.md"],
+  "business_risk": "high",
+  "test_gaps": ["tests/test_pricing.py:test_price_for"],
+  "gate": "fail",
+  "labels": ["needs-doc-update", "review-risk-high"],
+  "reasons": [
+    "verification score 33% below 80%",
+    "1 core doc(s) out of sync: docs/checkout.md",
+    "SCHEMA_MIGRATION_RISK in db/migrations/0042_drop_price_history.sql: DROP TABLE price_history is destructive and has no down migration",
+    "BROKEN: Discount codes apply at checkout — a discount applied within the 5-minute TTL is not reflected in the price",
+    "caller broken: price_for(cart) used at src/api/checkout.py:120, src/admin/quotes.py:57"
+  ]
+}

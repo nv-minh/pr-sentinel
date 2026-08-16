@@ -1,0 +1,8 @@
+[
+  {"id": "C1", "text": "Adds Google OAuth sign-in", "category": "feature",
+   "files": ["src/auth/google.py"], "docs": ["docs/auth.md"]},
+  {"id": "C2", "text": "Refresh tokens are rotated on every use", "category": "feature",
+   "files": ["src/auth/session.py"], "docs": []},
+  {"id": "C3", "text": "Updates docs/auth.md", "category": "docs",
+   "files": ["docs/auth.md"], "docs": ["docs/auth.md"]}
+]

@@ -1,0 +1,5 @@
+[
+  {"id": "C1", "text": "Caches prices for 5 minutes", "category": "perf", "files": ["src/checkout/pricing.py"], "docs": ["docs/checkout.md"]},
+  {"id": "C2", "text": "No behaviour change", "category": "perf", "files": ["src/checkout/pricing.py"], "docs": []},
+  {"id": "C3", "text": "Fully covered by tests", "category": "perf", "files": [], "docs": []}
+]

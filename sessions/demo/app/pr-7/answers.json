@@ -1,0 +1,4 @@
+[
+  {"question": "Is the 7-day refresh window intended, or should docs/auth.md stay at 30?", "kind": "free", "answer": "7 days is intended — update the doc"},
+  {"question": "Doc docs/auth.md: refresh window differs. Is the doc wrong?", "kind": "doc", "answer": "y"}
+]

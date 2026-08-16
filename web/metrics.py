@@ -7,6 +7,7 @@ from pathlib import Path
 from synthesize import _overall_verdict
 
 VERDICTS = ("ACCURATE", "PARTIAL", "MISLEADING", "NO_CLAIMS")
+GATES = ("pass", "warn", "fail", "unknown")
 REQUIRED_FILES = ("snapshot.json", "findings.json")
 
 
@@ -90,6 +91,12 @@ def pr_record(session_root: Path, owner: str, repo: str, n: int) -> dict | None:
     claims = findings.get("claims", [])
     docs = findings.get("docs", [])
     impact = findings.get("impact", [])
+    contracts = findings.get("contracts", [])
+    tests = findings.get("tests", [])
+    callers = findings.get("callers_outside_diff", [])
+
+    scores = _read_json(session_dir / "score.json") or {}
+    usage = _read_json_list(session_dir / "usage.json")
 
     return {
         "pr": n,
@@ -98,6 +105,18 @@ def pr_record(session_root: Path, owner: str, repo: str, n: int) -> dict | None:
         "base": snapshot.get("base", ""),
         "head": snapshot.get("head", ""),
         "verdict": _verdict_key(_overall_verdict(findings)),
+        "gate": scores.get("gate", ""),
+        "verification_score": scores.get("verification_score"),
+        "business_risk": scores.get("business_risk", ""),
+        "gate_reasons": scores.get("reasons", []),
+        "cost_usd": round(sum(e.get("cost_usd") or 0.0 for e in usage
+                              if isinstance(e, dict)), 4),
+        "breaking": sum(1 for c in contracts if c.get("status") in
+                        ("BREAKING_API_CHANGE", "SCHEMA_MIGRATION_RISK")),
+        "test_gaps": sum(1 for t in tests
+                         if t.get("assertion_quality") in ("WEAK", "MISSING")),
+        "callers_at_risk": sum(1 for c in callers
+                               if c.get("risk") in ("NEEDS_UPDATE", "BROKEN")),
         "claims_total": len(claims),
         "bugs": sum(1 for c in claims
                     if c.get("status") in ("FAIL", "PARTIAL"))
@@ -141,16 +160,24 @@ def repo_record(session_root: Path, owner: str, repo: str) -> dict | None:
             prs.append(rec)
     prs.sort(key=lambda r: r["updated_at"], reverse=True)
     verdict_count = {v: 0 for v in VERDICTS}
+    gate_count = {g: 0 for g in GATES}
     for r in prs:
         if not r["failed"]:
             verdict_count[r["verdict"]] += 1
+            gate_count[r["gate"] or "unknown"] = gate_count.get(r["gate"] or "unknown", 0) + 1
+    scored = [r["verification_score"] for r in prs if r["verification_score"] is not None]
     return {
         "owner": owner,
         "repo": repo,
         "prs_total": len(prs),
         "bugs_total": sum(r["bugs"] for r in prs),
         "doc_errors_total": sum(r["doc_errors"] for r in prs),
+        "breaking_total": sum(r["breaking"] for r in prs),
+        "test_gaps_total": sum(r["test_gaps"] for r in prs),
+        "cost_total": round(sum(r["cost_usd"] for r in prs), 4),
+        "avg_verification_score": round(sum(scored) / len(scored), 3) if scored else None,
         "verdict_count": verdict_count,
+        "gate_count": gate_count,
         "prs": prs,
     }
 
@@ -187,8 +214,16 @@ def pr_detail(session_root: Path, owner: str, repo: str, n: int) -> dict | None:
         "claims": claims,
         "docs": findings.get("docs", []),
         "impact": findings.get("impact", []),
+        "callers": findings.get("callers_outside_diff", []),
+        "contracts": findings.get("contracts", []),
+        "tests": findings.get("tests", []),
         "threads": findings.get("threads", []),
+        "questions": findings.get("unresolved_questions", []),
         "answers": answers,
+        "pruned": snapshot.get("pruned", []),
+        "score": _read_json(session_dir / "score.json") or {},
+        "usage": _read_json_list(session_dir / "usage.json"),
+        "replies": _read_json_list(session_dir / "replies.json"),
     }
 
 

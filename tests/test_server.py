@@ -1,6 +1,6 @@
-# tests/test_server.py
 import json
 import os
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -8,370 +8,359 @@ from fastapi.testclient import TestClient
 from autoreview_config import load_config
 from web.server import app
 
-EMPTY_FINDINGS = {"claims": [], "docs": [], "impact": [], "threads": [],
-                  "unresolved_questions": []}
+SNAPSHOT = {"pr": 77, "title": "Google sign-in", "author": "dev1", "base": "main",
+            "head": "x", "files": [], "commits": [], "threads": [],
+            "pruned": [{"filename": "yarn.lock", "reason": "lockfile", "dropped": True}]}
 
-SNAPSHOT = {"pr": 7, "title": "Add checkout", "author": "dev1",
-            "base": "main", "head": "x", "files": [], "commits": [], "threads": []}
+FINDINGS = {
+    "claims": [{"id": "C1", "status": "PASS", "evidence": ["a.dart:1"], "note": ""}],
+    "docs": [{"path": "docs/PLAN.md", "status": "WRONG", "what": "doc is wrong"}],
+    "impact": [{"requirement": "Auth", "impact": "CHANGED", "detail": "d"}],
+    "callers_outside_diff": [{"symbol": "signIn()", "defined_at": "a.dart:3",
+                              "callers": ["b.dart:9"], "risk": "NEEDS_UPDATE",
+                              "note": ""}],
+    "contracts": [{"kind": "API", "path": "openapi.yml",
+                   "status": "BREAKING_API_CHANGE", "detail": "removed field"}],
+    "tests": [{"target": "auth:sign_in", "assertion_quality": "WEAK",
+               "uncovered_edge_cases": [{"case": "expired token", "where": "auth:sign_in"}],
+               "note": ""}],
+    "threads": [{"text": "check validation", "status": "STILL_VALID", "note": ""}],
+    "unresolved_questions": ["Doc PLAN wrong?"],
+}
+
+SCORE = {"verification_score": 1.0, "doc_drift": ["docs/PLAN.md"],
+         "business_risk": "high", "test_gaps": ["auth:sign_in"], "gate": "fail",
+         "labels": ["breaking-change"], "reasons": ["BREAKING_API_CHANGE in openapi.yml"]}
 
 
-def _write_session(root, owner, repo, pr, snapshot=None, findings=None,
-                   answers=None, report=None):
+def _write_session(root, owner, repo, pr):
     d = root / owner / repo / f"pr-{pr}"
     d.mkdir(parents=True, exist_ok=True)
-    if snapshot is not None:
-        (d / "snapshot.json").write_text(json.dumps(snapshot))
-    if findings is not None:
-        (d / "findings.json").write_text(json.dumps(findings))
-    if answers is not None:
-        (d / "answers.json").write_text(json.dumps(answers or []))
-    if report is not None:
-        (d / "report.md").write_text(report)
+    (d / "snapshot.json").write_text(json.dumps(SNAPSHOT))
+    (d / "findings.json").write_text(json.dumps(FINDINGS))
+    (d / "score.json").write_text(json.dumps(SCORE))
+    (d / "usage.json").write_text(json.dumps([{"phase": "verify", "cost_usd": 0.42}]))
+    (d / "answers.json").write_text(json.dumps(
+        [{"question": "Doc PLAN wrong?", "kind": "doc", "answer": "SKIPPED"}]))
+    return d
 
 
 @pytest.fixture
 def client(tmp_path, monkeypatch):
     monkeypatch.setenv("PRS_SESSION_ROOT", str(tmp_path))
-    _write_session(tmp_path, "sample-org", "sample-app", 77,
-                   snapshot={**SNAPSHOT, "pr": 77, "title": "Google sign-in"},
-                   findings={
-                       "claims": [{"id": "C1", "status": "PASS",
-                                   "evidence": ["a.dart:1"], "note": ""}],
-                       "docs": [{"path": "docs/PLAN.md", "status": "WRONG",
-                                 "what": "doc sai"}],
-                       "impact": [{"requirement": "Auth", "impact": "CHANGED",
-                                   "detail": "d"}],
-                       "threads": [{"text": "check validation",
-                                    "status": "STILL_VALID", "note": ""}],
-                       "unresolved_questions": ["Doc PLAN wrong?"],
-                   },
-                   answers=[{"question": "Doc PLAN wrong?", "kind": "doc",
-                             "answer": "SKIPPED"}])
+    _write_session(tmp_path, "sample-org", "sample-app", 77)
     return TestClient(app)
 
 
-def test_repo_list_page(client):
-    resp = client.get("/")
-    assert resp.status_code == 200
-    assert "sample-app" in resp.text
-
-
-def test_repo_list_empty_state(tmp_path, monkeypatch):
-    monkeypatch.setenv("PRS_SESSION_ROOT", str(tmp_path))
-    resp = TestClient(app).get("/")
-    assert resp.status_code == 200
-    assert "No reviews yet" in resp.text
-
-
-def test_repo_page(client, monkeypatch):
-    monkeypatch.setattr("gh.run_gh",
-                        lambda args, **kw: [{"number": 77, "title": "Google sign-in",
-                                             "draft": False}])
-    resp = client.get("/repos/sample-org/sample-app")
-    assert resp.status_code == 200
-    assert "Google sign-in" in resp.text
-    assert "PRs REVIEWED" in resp.text
-
-
-def test_pr_page_tabs(client):
-    resp = client.get("/repos/sample-org/sample-app/pr/77")
-    assert resp.status_code == 200
-    assert "Claims" in resp.text
-    assert "Docs" in resp.text
-    assert "STILL_VALID" in resp.text
-    assert "SKIPPED" in resp.text
-
-
-def test_unknown_repo_404(client):
-    assert client.get("/repos/sample-org/nope").status_code == 404
-
-
-def test_unknown_pr_404(client):
-    assert client.get("/repos/sample-org/sample-app/pr/999").status_code == 404
-
-
-def test_api_config_and_toggle(tmp_path, monkeypatch):
+def _config(tmp_path, monkeypatch, body="org: sample-org\nrepos:\n  sample-app: auto\n"):
     cfg_path = tmp_path / "prsentinel.yml"
-    cfg_path.write_text(
-        "org: sample-org\nrepos:\n  sample-app: auto\n")
+    cfg_path.write_text(body)
     monkeypatch.setenv("PRSENTINEL_CONFIG", str(cfg_path))
     monkeypatch.setenv("PRS_SESSION_ROOT", str(tmp_path / "sessions"))
+    return cfg_path
 
-    def fake_gh(args, **kw):
-        return [{"name": "sample-app"}, {"name": "admin-web"}]
 
-    monkeypatch.setattr("gh.run_gh", fake_gh)
+# ----------------------------------------------------------------------- data API
 
+def test_api_repos_lists_reviewed_repos(client):
+    data = client.get("/api/repos").json()
+    assert data["repos"][0]["repo"] == "sample-app"
+    assert data["repos"][0]["prs_total"] == 1
+    assert data["repos"][0]["cost_total"] == 0.42
+    assert data["repos"][0]["breaking_total"] == 1
+
+
+def test_api_repos_empty(tmp_path, monkeypatch):
+    monkeypatch.setenv("PRS_SESSION_ROOT", str(tmp_path))
+    monkeypatch.setenv("PRSENTINEL_CONFIG", str(tmp_path / "none.yml"))
+    assert TestClient(app).get("/api/repos").json() == {"repos": []}
+
+
+def test_api_repos_includes_auto_repos_without_data(tmp_path, monkeypatch):
+    _config(tmp_path, monkeypatch)
+    repos = TestClient(app).get("/api/repos").json()["repos"]
+    assert repos == [{"owner": "sample-org", "repo": "sample-app", "prs_total": 0,
+                      "bugs_total": 0, "doc_errors_total": 0, "breaking_total": 0,
+                      "test_gaps_total": 0, "cost_total": 0.0, "has_data": False,
+                      "mode": "auto"}]
+
+
+def test_api_repo_merges_open_prs(client, monkeypatch):
+    monkeypatch.setattr("gh.run_gh", lambda args, **kw: [
+        {"number": 78, "title": "chore: update deps", "draft": False},
+        {"number": 77, "title": "Google sign-in", "draft": False}])
+    data = client.get("/api/repos/sample-org/sample-app").json()
+    by_pr = {row["pr"]: row for row in data["open_prs"]}
+    assert by_pr[78]["status"] == "not_reviewed"
+    assert by_pr[77]["status"] == "reviewed"
+    assert data["gate_count"]["fail"] == 1
+    assert data["open_questions"] == 1
+
+
+def test_api_repo_survives_github_failure(client, monkeypatch):
+    def boom(args, **kw):
+        raise RuntimeError("rate limited")
+
+    monkeypatch.setattr("gh.run_gh", boom)
+    data = client.get("/api/repos/sample-org/sample-app").json()
+    assert data["open_prs"][0]["unavailable"] is True
+
+
+def test_api_repo_unknown_is_empty_not_404(client, monkeypatch):
+    monkeypatch.setattr("gh.run_gh", lambda args, **kw: [])
+    data = client.get("/api/repos/sample-org/nope").json()
+    assert data["prs_total"] == 0
+    assert data["prs"] == []
+
+
+def test_api_pr_returns_every_section(client):
+    data = client.get("/api/repos/sample-org/sample-app/pr/77").json()
+    assert data["reviewed"] is True
+    assert data["claims"][0]["id"] == "C1"
+    assert data["callers"][0]["symbol"] == "signIn()"
+    assert data["contracts"][0]["status"] == "BREAKING_API_CHANGE"
+    assert data["tests"][0]["assertion_quality"] == "WEAK"
+    assert data["pruned"][0]["filename"] == "yarn.lock"
+    assert data["score"]["gate"] == "fail"
+    assert data["pr"]["cost_usd"] == 0.42
+
+
+def test_api_pr_not_reviewed_placeholder(client, monkeypatch):
+    monkeypatch.setattr("gh.run_gh", lambda args, **kw: {
+        "number": 78, "title": "chore: update deps", "user": {"login": "bot"},
+        "base": {"ref": "main"}, "head": {"ref": "renovate"}})
+    data = client.get("/api/repos/sample-org/sample-app/pr/78").json()
+    assert data["reviewed"] is False
+    assert data["pr"]["title"] == "chore: update deps"
+
+
+def test_api_pr_unknown_404(client, monkeypatch):
+    def boom(args, **kw):
+        raise RuntimeError("not found")
+
+    monkeypatch.setattr("gh.run_gh", boom)
+    assert client.get("/api/repos/sample-org/sample-app/pr/999").status_code == 404
+
+
+def test_api_report(client, tmp_path):
+    (tmp_path / "sample-org" / "sample-app" / "pr-77" / "report.md").write_text("# hi")
+    assert client.get("/api/repos/sample-org/sample-app/pr/77/report").json() == {
+        "markdown": "# hi"}
+
+
+def test_api_report_missing(client):
+    assert client.get("/api/repos/sample-org/sample-app/pr/77/report").status_code == 404
+
+
+# ------------------------------------------------------------------------- config
+
+def test_api_config_and_toggle(tmp_path, monkeypatch):
+    cfg_path = _config(tmp_path, monkeypatch)
+    monkeypatch.setattr("gh.run_gh",
+                        lambda args, **kw: [{"name": "sample-app"}, {"name": "admin-web"}])
     client = TestClient(app)
 
-    r = client.get("/api/config")
-    assert r.status_code == 200
-    data = r.json()
+    data = client.get("/api/config").json()
     assert data["org"] == "sample-org"
+    assert data["gate"]["verification_score_min"] == 0.8
     by_name = {x["name"]: x["mode"] for x in data["repos"]}
-    assert by_name["sample-app"] == "auto"
-    assert by_name["admin-web"] == "unlisted"
+    assert by_name == {"sample-app": "auto", "admin-web": "unlisted"}
 
-    r = client.post("/api/config/repos/sample-app/mode",
-                    json={"mode": "manual"})
-    assert r.status_code == 200
+    assert client.post("/api/config/repos/sample-app/mode",
+                       json={"mode": "manual"}).status_code == 200
     assert load_config(cfg_path)["repos"]["sample-app"] == "manual"
 
-    r = client.post("/api/config/repos", json={"repo": "payments"})
-    assert r.status_code == 200
+    assert client.post("/api/config/repos", json={"repo": "payments"}).status_code == 200
     assert load_config(cfg_path)["repos"]["payments"] == "auto"
 
-    r = client.delete("/api/config/repos/payments")
-    assert r.status_code == 200
+    assert client.delete("/api/config/repos/payments").status_code == 200
     assert "payments" not in load_config(cfg_path)["repos"]
 
 
-def test_api_add_repo_without_org_rejects_name(tmp_path, monkeypatch):
-    cfg_path = tmp_path / "prsentinel.yml"
-    cfg_path.write_text("repos:\n  sample-app: auto\n")  # no org
-    monkeypatch.setenv("PRSENTINEL_CONFIG", str(cfg_path))
-    client = TestClient(app)
-    r = client.post("/api/config/repos", json={"repo": "payments"})
+def test_api_add_repo_without_org_rejects_bare_name(tmp_path, monkeypatch):
+    _config(tmp_path, monkeypatch, "repos:\n  sample-app: auto\n")
+    r = TestClient(app).post("/api/config/repos", json={"repo": "payments"})
     assert r.status_code == 400
     assert "org" in r.json()["detail"]
 
 
 def test_api_toggle_bad_mode_400(tmp_path, monkeypatch):
-    cfg_path = tmp_path / "prsentinel.yml"
-    cfg_path.write_text("org: sample-org\nrepos:\n  sample-app: auto\n")
-    monkeypatch.setenv("PRSENTINEL_CONFIG", str(cfg_path))
-    client = TestClient(app)
-    r = client.post("/api/config/repos/sample-app/mode", json={"mode": "x"})
-    assert r.status_code == 400
+    _config(tmp_path, monkeypatch)
+    assert TestClient(app).post("/api/config/repos/sample-app/mode",
+                                json={"mode": "x"}).status_code == 400
 
 
 def test_api_config_missing_file_404(tmp_path, monkeypatch):
     monkeypatch.setenv("PRSENTINEL_CONFIG", str(tmp_path / "none.yml"))
-    client = TestClient(app)
-    assert client.get("/api/config").status_code == 404
+    assert TestClient(app).get("/api/config").status_code == 404
 
 
-def test_config_page_has_config_block(tmp_path, monkeypatch):
-    cfg_path = tmp_path / "prsentinel.yml"
-    cfg_path.write_text("org: sample-org\nrepos:\n  sample-app: auto\n")
-    monkeypatch.setenv("PRSENTINEL_CONFIG", str(cfg_path))
-    monkeypatch.setenv("PRS_SESSION_ROOT", str(tmp_path / "sessions"))
-    monkeypatch.setattr("gh.run_gh", lambda args, **kw: [{"name": "sample-app"}])
-    client = TestClient(app)
-    r = client.get("/config")
-    assert r.status_code == 200
-    assert "Repo configuration" in r.text
-    assert "sample-app" in r.text
+# ------------------------------------------------------------------------- review
+
+@pytest.fixture
+def inline_jobs(monkeypatch):
+    """Run the background review job synchronously so tests can assert on it."""
+    monkeypatch.setattr("web.server._spawn", lambda target: target())
 
 
-def test_repo_list_page_has_no_config_block(tmp_path, monkeypatch):
-    cfg_path = tmp_path / "prsentinel.yml"
-    cfg_path.write_text("org: sample-org\nrepos:\n  sample-app: auto\n")
-    monkeypatch.setenv("PRSENTINEL_CONFIG", str(cfg_path))
-    monkeypatch.setenv("PRS_SESSION_ROOT", str(tmp_path / "sessions"))
-    monkeypatch.setattr("gh.run_gh", lambda args, **kw: [{"name": "sample-app"}])
-    client = TestClient(app)
-    r = client.get("/")
-    assert r.status_code == 200
-    assert "Repo configuration" not in r.text
-    assert "Config" in r.text  # navbar link
-
-
-def test_repo_page_shows_open_prs(client, tmp_path, monkeypatch):
-    def fake_gh(args, **kw):
-        return [
-            {"number": 78, "title": "chore: update deps", "draft": False},
-            {"number": 77, "title": "Google sign-in", "draft": False},
-        ]
-
-    monkeypatch.setattr("gh.run_gh", fake_gh)
-    resp = client.get("/repos/sample-org/sample-app")
-    assert resp.status_code == 200
-    assert "chore: update deps" in resp.text
-    assert "Not reviewed" in resp.text
-    assert "Reviewed" in resp.text
-
-
-def test_repo_page_gh_failure_badge(client, tmp_path, monkeypatch):
-    def fake_gh(args, **kw):
-        raise RuntimeError("rate limited")
-
-    monkeypatch.setattr("gh.run_gh", fake_gh)
-    resp = client.get("/repos/sample-org/sample-app")
-    assert resp.status_code == 200
-    assert "open PRs unavailable" in resp.text
-
-
-def test_trigger_review_ok(tmp_path, monkeypatch):
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
-    cfg_path = tmp_path / "prsentinel.yml"
-    cfg_path.write_text("org: sample-org\nrepos:\n  sample-app: auto\n")
-    monkeypatch.setenv("PRSENTINEL_CONFIG", str(cfg_path))
-    monkeypatch.setenv("PRS_SESSION_ROOT", str(tmp_path / "sessions"))
+def test_trigger_review_starts_job(tmp_path, monkeypatch, inline_jobs):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+    _config(tmp_path, monkeypatch)
     calls = []
+    monkeypatch.setattr("web.server.run_main", lambda argv: calls.append(argv) or 0)
 
-    def fake_main(argv):
-        calls.append(argv)
-        return 0
-
-    monkeypatch.setattr("web.server.run_main", fake_main)
-    client = TestClient(app)
-    r = client.post("/api/repos/sample-org/sample-app/pr/78/review")
-    assert r.status_code == 200
-    assert r.json()["ok"] is True
+    r = TestClient(app).post("/api/repos/sample-org/sample-app/pr/78/review")
+    assert r.status_code == 202
+    assert r.json()["status"] == "started"
     args = calls[0]
     assert "sample-org/sample-app" in args and "78" in args
     assert "--force" in args
-    assert "--skip-human" in args       # config mặc định skip_human: true
-    assert "--no-post" not in args      # config mặc định post_comment: true
+    assert "--skip-human" in args        # config default skip_human: true
+    assert "--no-post" not in args       # config default post_comment: true
 
 
-def test_trigger_review_no_post_config(tmp_path, monkeypatch):
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
-    monkeypatch.setenv("PRS_SESSION_ROOT", str(tmp_path / "sessions"))
-    cfg_path = tmp_path / "prsentinel.yml"
-    cfg_path.write_text("org: sample-org\nrepos:\n  sample-app: auto\n"
-                        "post_comment: false\nskip_human: false\n")
-    monkeypatch.setenv("PRSENTINEL_CONFIG", str(cfg_path))
+def test_trigger_review_reply_mode(tmp_path, monkeypatch, inline_jobs):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+    _config(tmp_path, monkeypatch)
     calls = []
+    monkeypatch.setattr("web.server.run_main", lambda argv: calls.append(argv) or 0)
 
-    def fake_main(argv):
-        calls.append(argv)
-        return 0
+    TestClient(app).post("/api/repos/sample-org/sample-app/pr/78/review?reply=true")
+    assert "--reply" in calls[0]
+    assert "--force" not in calls[0]
 
-    monkeypatch.setattr("web.server.run_main", fake_main)
-    client = TestClient(app)
-    r = client.post("/api/repos/sample-org/sample-app/pr/78/review")
-    assert r.status_code == 200
+
+def test_trigger_review_honours_config_flags(tmp_path, monkeypatch, inline_jobs):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+    _config(tmp_path, monkeypatch,
+            "org: sample-org\nrepos:\n  sample-app: auto\n"
+            "post_comment: false\nskip_human: false\n")
+    calls = []
+    monkeypatch.setattr("web.server.run_main", lambda argv: calls.append(argv) or 0)
+
+    TestClient(app).post("/api/repos/sample-org/sample-app/pr/78/review")
     assert "--no-post" in calls[0]
     assert "--skip-human" not in calls[0]
+
+
+def test_trigger_review_records_failure_and_releases_lock(tmp_path, monkeypatch,
+                                                          inline_jobs):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+    _config(tmp_path, monkeypatch)
+    monkeypatch.setattr("web.server.run_main", lambda argv: 2)
+    client = TestClient(app)
+
+    assert client.post("/api/repos/sample-org/sample-app/pr/78/review").status_code == 202
+    status = client.get("/api/repos/sample-org/sample-app/pr/78/review/status").json()
+    assert status["running"] is False
+    assert status["last"]["exit"] == 2
+    session = tmp_path / "sessions" / "sample-org" / "sample-app" / "pr-78"
+    assert not (session / "review.lock").exists()
+
+
+def test_trigger_review_releases_lock_when_the_pipeline_crashes(tmp_path, monkeypatch,
+                                                                inline_jobs):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+    _config(tmp_path, monkeypatch)
+
+    def boom(argv):
+        raise RuntimeError("pipeline exploded")
+
+    monkeypatch.setattr("web.server.run_main", boom)
+    client = TestClient(app)
+    client.post("/api/repos/sample-org/sample-app/pr/78/review")
+
+    session = tmp_path / "sessions" / "sample-org" / "sample-app" / "pr-78"
+    assert not (session / "review.lock").exists()
+    assert "pipeline exploded" in (session / "review.log").read_text()
 
 
 def test_trigger_review_without_auth(tmp_path, monkeypatch):
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.setattr("config.CLI_CONFIG", tmp_path / "no-cli.json")
-    cfg_path = tmp_path / "prsentinel.yml"
-    cfg_path.write_text("org: sample-org\nrepos:\n  sample-app: auto\n")
-    monkeypatch.setenv("PRSENTINEL_CONFIG", str(cfg_path))
-    monkeypatch.setattr("web.server.run_main", lambda argv: 3)
-    client = TestClient(app)
-    r = client.post("/api/repos/sample-org/sample-app/pr/78/review")
+    _config(tmp_path, monkeypatch)
+    r = TestClient(app).post("/api/repos/sample-org/sample-app/pr/78/review")
     assert r.status_code == 400
     assert "ANTHROPIC_API_KEY" in r.json()["detail"]
 
 
-def test_trigger_review_error_500(tmp_path, monkeypatch):
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
-    monkeypatch.setenv("PRS_SESSION_ROOT", str(tmp_path / "sessions"))
-    cfg_path = tmp_path / "prsentinel.yml"
-    cfg_path.write_text("org: sample-org\nrepos:\n  sample-app: auto\n")
-    monkeypatch.setenv("PRSENTINEL_CONFIG", str(cfg_path))
-    monkeypatch.setattr("web.server.run_main", lambda argv: 2)  # gh lỗi
-    client = TestClient(app)
-    r = client.post("/api/repos/sample-org/sample-app/pr/78/review")
-    assert r.status_code == 500
-    assert "review failed" in r.json()["detail"]
-
-
 def test_trigger_review_concurrent_409(tmp_path, monkeypatch):
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
-    monkeypatch.setenv("PRS_SESSION_ROOT", str(tmp_path / "sessions"))
-    cfg_path = tmp_path / "prsentinel.yml"
-    cfg_path.write_text("org: sample-org\nrepos:\n  sample-app: auto\n")
-    monkeypatch.setenv("PRSENTINEL_CONFIG", str(cfg_path))
-    monkeypatch.setenv("PRS_SESSION_ROOT", str(tmp_path / "sessions"))
-    monkeypatch.setattr("web.server.run_main", lambda argv: 0)
-    lock = tmp_path / "sessions" / "sample-org" / "sample-app" / "pr-78" \
-        / "review.lock"
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+    _config(tmp_path, monkeypatch)
+    lock = tmp_path / "sessions" / "sample-org" / "sample-app" / "pr-78" / "review.lock"
     lock.parent.mkdir(parents=True)
     lock.write_text(json.dumps({"pid": os.getpid(), "started_at": "2026-08-16T10:00:00"}))
-    client = TestClient(app)
-    r = client.post("/api/repos/sample-org/sample-app/pr/78/review")
+
+    r = TestClient(app).post("/api/repos/sample-org/sample-app/pr/78/review")
     assert r.status_code == 409
     assert "already running" in r.json()["detail"]
-    assert "PID" in r.json()["detail"]
 
 
-def test_review_status_api_running(tmp_path, monkeypatch):
+def test_trigger_review_replaces_a_stale_lock(tmp_path, monkeypatch, inline_jobs):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+    _config(tmp_path, monkeypatch)
+    monkeypatch.setattr("web.server.run_main", lambda argv: 0)
+    lock = tmp_path / "sessions" / "sample-org" / "sample-app" / "pr-78" / "review.lock"
+    lock.parent.mkdir(parents=True)
+    lock.write_text(json.dumps({"pid": 999999, "started_at": "2026-08-16T10:00:00"}))
+
+    assert TestClient(app).post(
+        "/api/repos/sample-org/sample-app/pr/78/review").status_code == 202
+
+
+def test_review_status_running(tmp_path, monkeypatch):
     monkeypatch.setenv("PRS_SESSION_ROOT", str(tmp_path / "sessions"))
-    lock = tmp_path / "sessions" / "sample-org" / "sample-app" / "pr-78" \
-        / "review.lock"
+    lock = tmp_path / "sessions" / "sample-org" / "sample-app" / "pr-78" / "review.lock"
     lock.parent.mkdir(parents=True)
     lock.write_text(json.dumps({"pid": os.getpid(), "started_at": "2026-08-16T10:00:00"}))
-    client = TestClient(app)
-    r = client.get("/api/repos/sample-org/sample-app/pr/78/review/status")
-    assert r.status_code == 200
-    data = r.json()
+    data = TestClient(app).get(
+        "/api/repos/sample-org/sample-app/pr/78/review/status").json()
     assert data["running"] is True
     assert data["pid"] == os.getpid()
 
 
-def test_review_status_api_stale(tmp_path, monkeypatch):
+def test_review_status_stale(tmp_path, monkeypatch):
     monkeypatch.setenv("PRS_SESSION_ROOT", str(tmp_path / "sessions"))
-    lock = tmp_path / "sessions" / "sample-org" / "sample-app" / "pr-78" \
-        / "review.lock"
+    lock = tmp_path / "sessions" / "sample-org" / "sample-app" / "pr-78" / "review.lock"
     lock.parent.mkdir(parents=True)
     lock.write_text(json.dumps({"pid": 999999, "started_at": "2026-08-16T10:00:00"}))
-    client = TestClient(app)
-    r = client.get("/api/repos/sample-org/sample-app/pr/78/review/status")
-    assert r.status_code == 200
-    assert r.json()["running"] is False
-    assert r.json()["stale"] is True
+    data = TestClient(app).get(
+        "/api/repos/sample-org/sample-app/pr/78/review/status").json()
+    assert data["running"] is False
+    assert data["stale"] is True
 
 
-def test_review_log_api(tmp_path, monkeypatch):
+def test_review_log_tail(tmp_path, monkeypatch):
     monkeypatch.setenv("PRS_SESSION_ROOT", str(tmp_path / "sessions"))
     session_dir = tmp_path / "sessions" / "sample-org" / "sample-app" / "pr-78"
     session_dir.mkdir(parents=True)
     (session_dir / "review.log").write_text("line1\nline2\nline3\n")
-    client = TestClient(app)
-    r = client.get("/api/repos/sample-org/sample-app/pr/78/review/log?lines=2")
-    assert r.status_code == 200
-    data = r.json()
+    data = TestClient(app).get(
+        "/api/repos/sample-org/sample-app/pr/78/review/log?lines=2").json()
     assert data["log"] == "line2\nline3"
     assert data["running"] is False
 
 
-def test_review_log_api_missing(tmp_path, monkeypatch):
+def test_review_log_missing(tmp_path, monkeypatch):
     monkeypatch.setenv("PRS_SESSION_ROOT", str(tmp_path / "sessions"))
-    client = TestClient(app)
-    r = client.get("/api/repos/sample-org/sample-app/pr/78/review/log")
-    assert r.status_code == 200
-    assert r.json() == {"log": "", "running": False}
+    data = TestClient(app).get(
+        "/api/repos/sample-org/sample-app/pr/78/review/log").json()
+    assert data == {"log": "", "running": False}
 
 
-def test_repo_page_has_review_buttons(client, monkeypatch):
-    monkeypatch.setattr("gh.run_gh",
-                        lambda args, **kw: [
-                            {"number": 78, "title": "chore: update deps",
-                             "draft": False}])
-    resp = client.get("/repos/sample-org/sample-app")
-    assert resp.status_code == 200
-    assert "Review now" in resp.text
+# ---------------------------------------------------------------------------- SPA
 
-
-def test_repo_list_shows_auto_repos_without_data(tmp_path, monkeypatch):
-    cfg_path = tmp_path / "prsentinel.yml"
-    cfg_path.write_text("org: sample-org\nrepos:\n  sample-app: auto\n")
-    monkeypatch.setenv("PRSENTINEL_CONFIG", str(cfg_path))
-    monkeypatch.setenv("PRS_SESSION_ROOT", str(tmp_path / "sessions"))
-    client = TestClient(app)
+def test_spa_reports_an_unbuilt_dashboard(client, tmp_path, monkeypatch):
+    monkeypatch.setattr("web.server.UI_DIST", tmp_path / "not-built")
     r = client.get("/")
-    assert r.status_code == 200
-    assert "sample-org/sample-app" in r.text
-    assert "AUTO" in r.text
-    assert "reviewed automatically" in r.text
+    assert r.status_code == 503
+    assert "npm run build" in r.json()["detail"]
 
 
-def test_pr_page_not_reviewed_placeholder(client, monkeypatch):
-    monkeypatch.setattr("gh.run_gh",
-                        lambda args, **kw: {"number": 78,
-                                            "title": "chore: update deps",
-                                            "user": {"login": "bot"},
-                                            "base": {"ref": "main"},
-                                            "head": {"ref": "renovate"}})
-    resp = client.get("/repos/sample-org/sample-app/pr/78")
-    assert resp.status_code == 200
-    assert "Not reviewed yet" in resp.text
-    assert "Review now" in resp.text
-    assert "chore: update deps" in resp.text
+@pytest.mark.skipif(not (Path(__file__).resolve().parents[1] / "web/ui/dist/index.html").exists(),
+                    reason="dashboard not built")
+def test_spa_serves_client_routes(client):
+    for path in ("/", "/config", "/repos/demo/app/pr/8"):
+        r = client.get(path)
+        assert r.status_code == 200
+        assert "<div id=\"root\">" in r.text

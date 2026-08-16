@@ -1,0 +1,159 @@
+export type Gate = 'pass' | 'warn' | 'fail' | 'unknown'
+
+export interface PrRecord {
+  pr: number
+  title: string
+  author: string
+  base: string
+  head: string
+  verdict: string
+  gate: Gate | ''
+  verification_score: number | null
+  business_risk: string
+  gate_reasons: string[]
+  cost_usd: number
+  breaking: number
+  test_gaps: number
+  callers_at_risk: number
+  claims_total: number
+  bugs: number
+  doc_errors: number
+  open_questions: number
+  rounds: number
+  updated_at: string
+  failed: boolean
+}
+
+export interface RepoRecord {
+  owner: string
+  repo: string
+  prs_total: number
+  bugs_total: number
+  doc_errors_total: number
+  breaking_total: number
+  test_gaps_total: number
+  cost_total: number
+  avg_verification_score: number | null
+  verdict_count: Record<string, number>
+  gate_count: Record<string, number>
+  prs: PrRecord[]
+  open_prs: OpenPr[]
+  open_questions: number
+  has_data?: boolean
+  mode?: string
+}
+
+export interface OpenPr {
+  pr: number
+  title: string
+  draft: boolean
+  status: 'reviewed' | 'reviewing' | 'not_reviewed'
+  rounds: number | null
+  bugs: number | null
+  doc_errors: number | null
+  unavailable: boolean
+  started_at?: string | null
+}
+
+export interface Claim {
+  id: string
+  text: string
+  category: string
+  status: string
+  evidence: string[]
+  note: string
+}
+
+export interface PrDetail {
+  reviewed: boolean
+  owner: string
+  repo: string
+  pr: PrRecord
+  title?: string
+  body?: string
+  claims?: Claim[]
+  docs?: { path: string; status: string; what: string }[]
+  impact?: { requirement: string; impact: string; area?: string; detail: string }[]
+  callers?: { symbol: string; defined_at: string; callers: string[]; risk: string; note: string }[]
+  contracts?: { kind: string; path: string; status: string; detail: string }[]
+  tests?: {
+    target: string
+    assertion_quality: string
+    uncovered_edge_cases: { case: string; where: string }[]
+    note: string
+  }[]
+  threads?: { text: string; status: string; note: string }[]
+  questions?: string[]
+  answers?: { question: string; kind: string; answer: string }[]
+  pruned?: { filename: string; reason: string; dropped: boolean }[]
+  score?: {
+    gate?: Gate
+    verification_score?: number
+    business_risk?: string
+    doc_drift?: string[]
+    reasons?: string[]
+    labels?: string[]
+  }
+  usage?: { phase: string; cost_usd: number | null; num_turns: number; model: string }[]
+  replies?: { author: string; body: string; created_at: string; source: string }[]
+}
+
+export interface ReviewStatus {
+  running: boolean
+  stale: boolean
+  pid?: number
+  started_at?: string
+  elapsed_seconds?: number | null
+  last?: { exit?: number; finished_at?: string }
+}
+
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(path, {
+    headers: { 'Content-Type': 'application/json' },
+    ...init,
+  })
+  if (!res.ok) {
+    let detail = `${res.status} ${res.statusText}`
+    try {
+      const body = await res.json()
+      if (body?.detail) detail = String(body.detail)
+    } catch {
+      /* the body was not JSON — keep the status line */
+    }
+    throw new Error(detail)
+  }
+  return res.json() as Promise<T>
+}
+
+export const api = {
+  repos: () => request<{ repos: RepoRecord[] }>('/api/repos'),
+  repo: (owner: string, repo: string) =>
+    request<RepoRecord>(`/api/repos/${owner}/${repo}`),
+  pr: (owner: string, repo: string, pr: number) =>
+    request<PrDetail>(`/api/repos/${owner}/${repo}/pr/${pr}`),
+  report: (owner: string, repo: string, pr: number) =>
+    request<{ markdown: string }>(`/api/repos/${owner}/${repo}/pr/${pr}/report`),
+  config: () => request<any>('/api/config'),
+  setMode: (repo: string, mode: string) =>
+    request<any>(`/api/config/repos/${encodeURIComponent(repo)}/mode`, {
+      method: 'POST',
+      body: JSON.stringify({ mode }),
+    }),
+  addRepo: (repo: string, mode: string) =>
+    request<any>('/api/config/repos', {
+      method: 'POST',
+      body: JSON.stringify({ repo, mode }),
+    }),
+  removeRepo: (repo: string) =>
+    request<any>(`/api/config/repos/${encodeURIComponent(repo)}`, { method: 'DELETE' }),
+  startReview: (owner: string, repo: string, pr: number, reply = false) =>
+    request<any>(`/api/repos/${owner}/${repo}/pr/${pr}/review?reply=${reply}`, {
+      method: 'POST',
+    }),
+  reviewStatus: (owner: string, repo: string, pr: number) =>
+    request<ReviewStatus>(`/api/repos/${owner}/${repo}/pr/${pr}/review/status`),
+  reviewLog: (owner: string, repo: string, pr: number) =>
+    request<{ log: string; running: boolean }>(
+      `/api/repos/${owner}/${repo}/pr/${pr}/review/log`,
+    ),
+}

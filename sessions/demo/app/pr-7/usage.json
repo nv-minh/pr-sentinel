@@ -1,0 +1,4 @@
+[
+  {"phase": "claims", "session_id": "c-1", "cost_usd": 0.0041, "num_turns": 2, "duration_ms": 3100, "model": "claude-haiku-4-5-20251001"},
+  {"phase": "verify", "session_id": "v-1", "cost_usd": 0.2814, "num_turns": 24, "duration_ms": 96400, "model": "claude-sonnet-5"}
+]

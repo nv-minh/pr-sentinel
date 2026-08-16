@@ -1,0 +1,29 @@
+{
+  "owner": "demo",
+  "repo": "app",
+  "pr": 7,
+  "title": "Add Google sign-in",
+  "body": "Adds Google OAuth sign-in. Refresh tokens are rotated on every use. Updates docs/auth.md.",
+  "author": "dev1",
+  "base": "main",
+  "base_sha": "1a2b3c4d",
+  "head": "feat/google-signin",
+  "head_sha": "9f2c1a8e",
+  "labels": ["feature", "auth"],
+  "files": [
+    {"filename": "src/auth/google.py", "status": "added", "additions": 118, "deletions": 0, "patch": "@@\n+def sign_in(code: str) -> Session:"},
+    {"filename": "src/auth/session.py", "status": "modified", "additions": 42, "deletions": 8, "patch": "@@\n+def rotate_refresh_token(token: str) -> str:"},
+    {"filename": "docs/auth.md", "status": "modified", "additions": 12, "deletions": 3, "patch": "@@\n+Sign in with Google"}
+  ],
+  "pruned": [
+    {"filename": "yarn.lock", "reason": "lockfile", "dropped": true},
+    {"filename": "public/google-logo.svg", "reason": "binary asset", "dropped": true}
+  ],
+  "commits": [
+    {"sha": "3c1d0aa", "message": "feat(auth): google sign-in handler"},
+    {"sha": "9f2c1a8", "message": "feat(auth): rotate refresh tokens"}
+  ],
+  "threads": [
+    {"path": "src/auth/session.py", "line": 46, "author": "reviewer1", "body": "Does this handle a reused refresh token?", "resolved": false, "outdated": false}
+  ]
+}

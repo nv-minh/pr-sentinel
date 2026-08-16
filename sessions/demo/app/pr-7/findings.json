@@ -1,0 +1,47 @@
+{
+  "claims": [
+    {"id": "C1", "status": "PASS", "evidence": ["src/auth/google.py:22", "src/auth/google.py:64"],
+     "note": "sign_in() exchanges the code and creates a session", "confidence": 0.95},
+    {"id": "C2", "status": "PARTIAL", "evidence": ["src/auth/session.py:46"],
+     "note": "rotation happens on refresh, but not on the initial sign-in path", "confidence": 0.7},
+    {"id": "C3", "status": "PASS", "evidence": ["docs/auth.md:31"],
+     "note": "the Google section was added", "confidence": 0.9}
+  ],
+  "docs": [
+    {"path": "docs/auth.md", "status": "STALE", "what": "still documents the 30-day refresh window; the code now expires refresh tokens after 7 days"},
+    {"path": "README.md", "status": "MATCH", "what": "auth section is accurate"}
+  ],
+  "impact": [
+    {"requirement": "Users can sign in", "impact": "CHANGED", "area": "auth",
+     "paths": ["src/auth/google.py"], "detail": "a third sign-in provider is now available"},
+    {"requirement": "Sessions expire predictably", "impact": "RISK", "area": "auth",
+     "paths": ["src/auth/session.py"], "detail": "rotation shortens the effective refresh window from 30 to 7 days"}
+  ],
+  "callers_outside_diff": [
+    {"symbol": "Session.refresh()", "defined_at": "src/auth/session.py:52",
+     "callers": ["src/api/middleware.py:88", "src/jobs/nightly_sync.py:31"],
+     "risk": "NEEDS_UPDATE",
+     "note": "both callers assume refresh() returns the same token; it now returns a rotated one"}
+  ],
+  "contracts": [
+    {"kind": "API", "path": "openapi.yml", "status": "COMPATIBLE",
+     "detail": "POST /auth/google added; no existing field changed"}
+  ],
+  "tests": [
+    {"target": "tests/test_google.py:test_sign_in", "assertion_quality": "STRONG",
+     "uncovered_edge_cases": [], "note": "asserts the session payload and the failure path"},
+    {"target": "tests/test_session.py:test_rotate", "assertion_quality": "WEAK",
+     "uncovered_edge_cases": [
+       {"case": "a refresh token reused after rotation must be rejected", "where": "tests/test_session.py:test_rotate"},
+       {"case": "rotation during a concurrent refresh", "where": "tests/test_session.py:test_rotate"}
+     ],
+     "note": "calls rotate_refresh_token() but only asserts it returns a string"}
+  ],
+  "threads": [
+    {"text": "Does this handle a reused refresh token?", "status": "STILL_VALID",
+     "note": "no code path rejects a token that was already rotated"}
+  ],
+  "unresolved_questions": [
+    "Is the 7-day refresh window intended, or should docs/auth.md stay at 30?"
+  ]
+}

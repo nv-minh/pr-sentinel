@@ -1,0 +1,39 @@
+{
+  "claims": [
+    {"id": "C1", "status": "PASS", "evidence": ["src/checkout/pricing.py:18"], "note": "CACHE_TTL = 300", "confidence": 0.95},
+    {"id": "C2", "status": "FAIL", "evidence": ["src/checkout/pricing.py:74", "db/migrations/0042_drop_price_history.sql:1"],
+     "note": "discount codes are resolved before the cache, so a code applied within the TTL is ignored; the migration also drops price_history", "confidence": 0.9},
+    {"id": "C3", "status": "FAIL", "evidence": ["tests/test_pricing.py:12"], "note": "one test, and it asserts nothing about the cached path", "confidence": 0.85}
+  ],
+  "docs": [
+    {"path": "docs/checkout.md", "status": "FABRICATED", "what": "describes a per-customer cache key that does not exist in the code"},
+    {"path": "docs/pricing-history.md", "status": "WRONG", "what": "documents the price_history table this PR drops"}
+  ],
+  "impact": [
+    {"requirement": "Discount codes apply at checkout", "impact": "BROKEN", "area": "payment",
+     "paths": ["src/checkout/pricing.py"], "detail": "a discount applied within the 5-minute TTL is not reflected in the price"},
+    {"requirement": "Price history is auditable", "impact": "BROKEN", "area": "data",
+     "paths": ["db/migrations/0042_drop_price_history.sql"], "detail": "the audit table is dropped with no replacement"}
+  ],
+  "callers_outside_diff": [
+    {"symbol": "price_for(cart)", "defined_at": "src/checkout/pricing.py:41",
+     "callers": ["src/api/checkout.py:120", "src/admin/quotes.py:57"], "risk": "BROKEN",
+     "note": "admin quotes rely on an uncached price and will now serve stale values"}
+  ],
+  "contracts": [
+    {"kind": "SCHEMA", "path": "db/migrations/0042_drop_price_history.sql", "status": "SCHEMA_MIGRATION_RISK",
+     "detail": "DROP TABLE price_history is destructive and has no down migration"}
+  ],
+  "tests": [
+    {"target": "tests/test_pricing.py:test_price_for", "assertion_quality": "MISSING",
+     "uncovered_edge_cases": [
+       {"case": "a discount applied inside the cache TTL", "where": "tests/test_pricing.py:test_price_for"},
+       {"case": "cache expiry boundary at exactly 300s", "where": "tests/test_pricing.py:test_price_for"}
+     ],
+     "note": "no test exercises the cached branch at all"}
+  ],
+  "threads": [],
+  "unresolved_questions": [
+    "Should dropping price_history be a separate, reviewed migration?"
+  ]
+}

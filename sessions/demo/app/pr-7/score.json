@@ -1,0 +1,14 @@
+{
+  "verification_score": 0.667,
+  "doc_drift": ["docs/auth.md"],
+  "business_risk": "medium",
+  "test_gaps": ["tests/test_session.py:test_rotate"],
+  "gate": "warn",
+  "labels": ["needs-doc-update"],
+  "reasons": [
+    "verification score 67% below 80%",
+    "1 core doc(s) out of sync: docs/auth.md",
+    "RISK: Sessions expire predictably — rotation shortens the effective refresh window from 30 to 7 days",
+    "caller needs update: Session.refresh()"
+  ]
+}

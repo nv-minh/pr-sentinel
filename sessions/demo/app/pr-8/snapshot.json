@@ -1,0 +1,16 @@
+{
+  "owner": "demo", "repo": "app", "pr": 8,
+  "title": "Speed up checkout by caching prices",
+  "body": "Caches prices for 5 minutes. No behaviour change. Fully covered by tests.",
+  "author": "dev2", "base": "main", "base_sha": "1a2b3c4d",
+  "head": "perf/price-cache", "head_sha": "77aa10bc",
+  "labels": ["performance"],
+  "files": [
+    {"filename": "src/checkout/pricing.py", "status": "modified", "additions": 61, "deletions": 14, "patch": "@@\n+CACHE_TTL = 300"},
+    {"filename": "db/migrations/0042_drop_price_history.sql", "status": "added", "additions": 3, "deletions": 0, "patch": "@@\n+DROP TABLE price_history;"},
+    {"filename": "docs/checkout.md", "status": "modified", "additions": 5, "deletions": 0, "patch": "@@\n+Prices are cached"}
+  ],
+  "pruned": [{"filename": "package-lock.json", "reason": "lockfile", "dropped": true}],
+  "commits": [{"sha": "77aa10b", "message": "perf(checkout): cache computed prices"}],
+  "threads": []
+}
