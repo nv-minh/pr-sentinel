@@ -81,10 +81,29 @@ falls back to a full re-review anyway.
 
 1. **True delta resume.** The SDK exposes `session_store`, an adapter that
    mirrors transcript entries to storage of our choosing (`append`/`load` are the
-   only required methods). Point it at `sessions/<owner>/<repo>/pr-<n>/transcript.jsonl`
-   so the transcript becomes one more phase artifact under I2, and restore
-   `sessions/` on CI with `actions/cache` keyed on the PR number. `resume=` then
-   works on any runner.
+   only required methods). Point it at
+   `sessions/<owner>/<repo>/pr-<n>/transcripts/<session-id>.jsonl` so the
+   transcript becomes one more phase artifact under I2, and restore `sessions/`
+   on CI between runs of the same PR. `resume=` then works on any runner.
+
+   **Amended 2026-08-17, during implementation — do not use `actions/cache`.**
+   This section originally specified it. Actions caches are branch-scoped: a run
+   restores from its own ref, the default branch, and — for `pull_request`
+   events only — the base branch. `GITHUB_REF` on an `issue_comment` event is the
+   default branch, because a comment is not tied to a code ref, while the cache
+   saved during the `pull_request` run is scoped to the PR's ref. The `--reply`
+   run would therefore miss on every comment, which is the exact case this
+   workstream exists to serve. Use a **per-PR artifact** instead — artifacts are
+   scoped to the repository, not to a branch — restored through the
+   `/actions/artifacts` REST API, which requires adding `actions: read` to the
+   workflow's `permissions:` block. Exclude `sessions/**/workspace` from the
+   artifact: it holds a full clone of the PR that `setup_workspace` re-creates
+   anyway.
+
+   The adapter must key its files on `session_id` alone and ignore the
+   `SessionKey`'s `project_key`. The SDK derives `project_key` from
+   `options.cwd`, which differs between runners, so keying on it would make
+   every CI resume miss silently.
 2. **Stateless follow-up.** When the transcript is absent but `findings.json`
    survived, pass the previous findings into `build_followup_prompt()` as data.
    Cheaper than a full review, and it removes the hard dependency on an
@@ -92,7 +111,7 @@ falls back to a full re-review anyway.
 3. **Full re-review.** Today's fallback, unchanged.
 
 **Reachability.** Because the reviewed repositories are private and internal,
-every PR branch lives in the same repository. Actions cache is readable and the
+every PR branch lives in the same repository. Stored state is readable and the
 token has write permission, so tiers 1 and 2 are the normal path — not a
 best-effort optimization. (Were a fork PR ever reviewed, its cache is isolated
 and its token read-only, so it would degrade to tier 3. That is correct
