@@ -110,3 +110,17 @@ def test_budget_is_only_sent_to_a_provider_that_reports_cost(monkeypatch):
     agent.run_structured("hi", schema={"type": "object"}, max_budget_usd=2.0,
                          provider=providers.build("deepseek", {"structured_output": "native"}))
     assert seen["options"].max_budget_usd is None
+
+
+def test_a_session_dir_attaches_the_transcript_store(monkeypatch, tmp_path):
+    seen = _capture(monkeypatch)
+    agent.run_structured("hi", schema={"type": "object"}, session_dir=tmp_path)
+    store = seen["options"].session_store
+    assert store is not None
+    assert store.root == tmp_path / "transcripts"
+
+
+def test_no_session_dir_means_no_transcript_store(monkeypatch):
+    seen = _capture(monkeypatch)
+    agent.run_structured("hi", schema={"type": "object"})
+    assert seen["options"].session_store is None

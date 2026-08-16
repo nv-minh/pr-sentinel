@@ -20,6 +20,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import providers
+from session_store import FileSessionStore
 
 # Read-only inspection tools: enough to verify claims, trace callers and read docs.
 READ_ONLY_TOOLS = ["Read", "Grep", "Glob"]
@@ -61,7 +62,7 @@ async def _query(prompt: str, options):
 
 
 def _options(*, schema, cwd, tools, model, max_turns, max_budget_usd, resume,
-             system_prompt, env):
+             system_prompt, env, session_dir):
     from claude_agent_sdk import ClaudeAgentOptions
 
     allowed = list(tools or [])
@@ -78,6 +79,7 @@ def _options(*, schema, cwd, tools, model, max_turns, max_budget_usd, resume,
         resume=resume,
         system_prompt=system_prompt,
         env=env,
+        session_store=FileSessionStore(session_dir) if session_dir else None,
         output_format=({"type": "json_schema", "schema": schema}
                        if schema is not None else None),
     )
@@ -89,12 +91,16 @@ def run_structured(prompt: str, *, schema: dict, cwd: Path | str | None = None,
                    max_budget_usd: float | None = None,
                    resume: str | None = None,
                    system_prompt: str | None = None,
+                   session_dir: Path | str | None = None,
                    provider=None) -> AgentResult:
     """Run one agent turn-loop and return its schema-validated JSON answer.
 
     `tools=None` means no tools at all (a plain completion); pass
     `READ_ONLY_TOOLS` for a code-reading agent. Every SDK failure is re-raised
     as RuntimeError so callers can handle one exception type.
+
+    `session_dir` mirrors the transcript into that directory so a later
+    `resume=` works on a machine that never saw the original run.
     """
     from claude_agent_sdk import ClaudeSDKError
 
@@ -106,6 +112,7 @@ def run_structured(prompt: str, *, schema: dict, cwd: Path | str | None = None,
         # A budget the provider cannot price is a hard stop that never fires.
         max_budget_usd=max_budget_usd if provider.reports_cost else None,
         resume=resume, system_prompt=system_prompt,
+        session_dir=session_dir,
         env=providers.agent_env(provider),
     )
     try:
