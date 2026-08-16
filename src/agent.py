@@ -109,15 +109,24 @@ def compat_prompt(prompt: str, schema: dict) -> str:
 def extract_json(text: str) -> dict:
     """The JSON object in a free-text model reply.
 
-    Providers in prompt mode wrap the answer in fences, prose, or both, so this
-    takes the fenced block when there is one and the outermost braces otherwise.
+    Providers in prompt mode wrap the answer in fences, prose, or both. Every
+    fenced block is tried in order — a follow-up reply often quotes fenced
+    code back at the model before its own answer — and the first one that
+    parses as a JSON object wins. When none does, the fallback brace-scans
+    the first fence when there is one, the whole reply otherwise.
     """
     if not (text or "").strip():
         raise RuntimeError("agent returned an empty reply")
     body = text.strip()
-    fence = re.search(r"```(?:json)?\s*(.+?)```", body, re.S)
-    if fence:
-        body = fence.group(1).strip()
+    fences = re.findall(r"```(?:json)?\s*(.+?)```", body, re.S)
+    for fence in fences:
+        try:
+            data = json.loads(fence.strip())
+        except json.JSONDecodeError:
+            continue
+        if isinstance(data, dict):
+            return data
+    body = fences[0].strip() if fences else body
     start, end = body.find("{"), body.rfind("}")
     if start == -1 or end <= start:
         raise RuntimeError(f"agent reply contained no JSON object: {text[:200]!r}")

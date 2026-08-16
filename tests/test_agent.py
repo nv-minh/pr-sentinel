@@ -134,6 +134,13 @@ def test_extract_json_reads_a_fenced_object():
     assert agent.extract_json('```json\n{"a": 1}\n```') == {"a": 1}
 
 
+def test_extract_json_skips_a_quoted_code_fence():
+    """A follow-up reply often quotes fenced code before the real answer."""
+    text = ('The author suggested:\n```python\nx = 1\n```\n'
+            'My answer:\n```json\n{"a": 1}\n```')
+    assert agent.extract_json(text) == {"a": 1}
+
+
 def test_extract_json_ignores_surrounding_prose():
     text = 'Sure — here is the result:\n\n```\n{"a": [1, 2]}\n```\n\nHope that helps.'
     assert agent.extract_json(text) == {"a": [1, 2]}
