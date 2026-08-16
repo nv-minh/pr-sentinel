@@ -73,5 +73,6 @@ jobs:
           path: |
             sessions
             !sessions/**/workspace
+            !sessions/**/workspace/**
           if-no-files-found: ignore
           retention-days: 14

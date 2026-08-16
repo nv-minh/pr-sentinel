@@ -62,8 +62,11 @@ async def _query(prompt: str, options):
     return result
 
 
-def _options(*, schema, cwd, tools, model, max_turns, max_budget_usd, resume,
-             system_prompt, env, session_dir):
+def _options(*, schema: dict | None, cwd: Path | str | None,
+             tools: list[str] | None, model: str | None,
+             max_turns: int | None, max_budget_usd: float | None,
+             resume: str | None, system_prompt: str | None, env: dict,
+             session_dir: Path | str | None):
     from claude_agent_sdk import ClaudeAgentOptions
 
     allowed = list(tools or [])
@@ -186,7 +189,11 @@ def run_structured(prompt: str, *, schema: dict, cwd: Path | str | None = None,
                     REPAIR_INSTRUCTION.format(error=first), repair))
             except ClaudeSDKError as e:
                 raise RuntimeError(f"Claude Agent SDK failed: {e}") from e
-            data = extract_json(message.result or "")
+            try:
+                data = extract_json(message.result or "")
+            except RuntimeError as second:
+                raise RuntimeError(
+                    f"repair turn failed too: {second}") from first
 
     return AgentResult(
         data=data,

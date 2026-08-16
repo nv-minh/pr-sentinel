@@ -70,7 +70,8 @@ class FileSessionStore:
     def _uuids(self, path: Path) -> set[str]:
         """Uuids already on disk for this key, read once per store instance."""
         if path not in self._seen:
-            self._seen[path] = {e["uuid"] for e in self._read(path) if e.get("uuid")}
+            self._seen[path] = {e["uuid"] for e in self._read(path)
+                                if isinstance(e, dict) and e.get("uuid")}
         return self._seen[path]
 
     def _read(self, path: Path):
@@ -80,6 +81,8 @@ class FileSessionStore:
             if not line.strip():
                 continue
             try:
-                yield json.loads(line)
+                entry = json.loads(line)
             except json.JSONDecodeError:
                 continue
+            if isinstance(entry, dict):
+                yield entry

@@ -77,6 +77,16 @@ def test_a_corrupt_line_is_skipped_not_fatal(tmp_path):
     assert [e["uuid"] for e in _load(store, KEY)] == ["a"]
 
 
+def test_a_non_dict_line_is_skipped_not_fatal(tmp_path):
+    store = FileSessionStore(tmp_path)
+    _append(store, KEY, [{"type": "user", "uuid": "a"}])
+    path = store.path_for(KEY)
+    path.write_text(path.read_text() + '"just a string"\n42\n')
+    assert [e["uuid"] for e in _load(store, KEY)] == ["a"]
+    _append(store, KEY, [{"type": "assistant", "uuid": "b"}])
+    assert [e["uuid"] for e in _load(store, KEY)] == ["a", "b"]
+
+
 def test_appending_nothing_creates_no_file(tmp_path):
     store = FileSessionStore(tmp_path)
     _append(store, KEY, [])
