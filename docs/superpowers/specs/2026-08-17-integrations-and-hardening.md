@@ -1,7 +1,13 @@
 # Spec — Roadmap: integrations and hardening
 
 **Date:** 2026-08-17
-**Status:** design under review — no workstream is approved for implementation yet
+**Status:** design under review — open questions resolved 2026-08-17, no workstream
+approved for implementation yet
+
+**Operating context (answers to the open questions, now closed):** Jira **Cloud**,
+authenticated with email + API token. The reviewed repositories are **private and
+internal** — no fork pull requests. Ticket keys may arrive from the **branch name,
+a PR title prefix, or a link a human pastes into the PR body**.
 
 ## Problem
 
@@ -85,9 +91,12 @@ falls back to a full re-review anyway.
    undocumented transcript layout.
 3. **Full re-review.** Today's fallback, unchanged.
 
-**Known limit.** For public repos, a fork PR cannot read the base repository's
-Actions cache and its token has no write permission. W0 degrades to tier 3
-there; that is correct, not a defect.
+**Reachability.** Because the reviewed repositories are private and internal,
+every PR branch lives in the same repository. Actions cache is readable and the
+token has write permission, so tiers 1 and 2 are the normal path — not a
+best-effort optimization. (Were a fork PR ever reviewed, its cache is isolated
+and its token read-only, so it would degrade to tier 3. That is correct
+behaviour, not a defect, and needs no extra work.)
 
 **Explicitly rejected.** Encoding message history into a hidden HTML comment on
 the PR. GitHub caps a comment at 65,536 characters, and anyone with write access
@@ -100,7 +109,12 @@ round number there, never a transcript.
 
 One question, three parts: what enters the agent's context, and on what budget.
 All three touch `agent.py` / `verify.py` / `prsentinel.yml`, so they ship
-together.
+together — with one exception carved out below.
+
+**Carve-out.** The untrusted-block helper (part 1) is a small, self-contained
+module that W3 needs on day one, since ticket text is a new input class. It
+ships **with W3**, not with W1. What stays in W1 is the rest of part 1
+(neutralization recording, the optional findings field) plus parts 2 and 3.
 
 ### 1. Data/instruction separation
 
@@ -124,9 +138,19 @@ schema, an injected instruction cannot exfiltrate data, write files or reach the
 network. The realistic threat is verdict manipulation — coercing `PASS` or
 `MATCH`. This is hardening, not an open hole.
 
-**Proposed upgrade.** Add an `injection_attempts` array to `FINDINGS_SCHEMA`:
-the agent reports text that tried to steer it, with `file:line`. That converts
-the threat into a review finding, and `score.py` can gate on it.
+**Threat model for internal repositories.** With no fork PRs, every author is
+inside the trust boundary, which lowers the likelihood of a deliberate attack
+substantially. It does not reach zero: dependency bumps, vendored code and
+pasted third-party snippets all carry text nobody on the team wrote, and I3 is
+about provenance rather than intent. The consequence is priority, not scope —
+part 1 stays in the design, but it no longer justifies blocking business value
+behind it. Hence the carve-out above, and the revised order below.
+
+**Deferred.** Adding an `injection_attempts` array to `FINDINGS_SCHEMA` — the
+agent reporting text that tried to steer it, with `file:line`, so `score.py`
+can gate on it. Attractive, but it is a schema change and a scoring change for
+a threat that internal repositories rarely see. Revisit if the repositories
+ever accept outside contributions.
 
 ### 2. Format-only diffs
 
@@ -192,19 +216,68 @@ would require write and exec permission, breaking I1. The SDK does expose
 
 ## W3 — Jira
 
-**Read.** Parse issue keys from the branch name, PR title and PR body. Fetch
-once during the snapshot phase, cache to `ticket.json` as a normal phase
-artifact under I2, and inject the text into the verify prompt inside a W1
-untrusted block. This upgrades `impact` from "does the code match what the
-author wrote" to "does the code match what the business asked for" — the single
-highest-value change in this document. `impact` gains a `requirement_source`
-field so a verdict says where its requirement came from.
+### Transport and auth
 
-**Write — comment only.** A deterministic module in the shape of
-`src/notify.py`, running after scoring, reading `score.json` and `findings.json`,
-posting one comment with the merge decision, failed claims and a PR link. It is
-idempotent the way `synthesize.py` is: find the previous bot comment on the
-ticket by marker and update it rather than appending on every run. Off by
+Jira Cloud, Basic authentication with `base64(email:api_token)`. Credentials
+come from the environment only — `JIRA_BASE_URL`, `JIRA_EMAIL`, `JIRA_API_TOKEN`
+— never from `prsentinel.yml`, matching the rule that file already states for
+provider tokens.
+
+No new dependency. `src/notify.py` posts to Slack with `urllib.request` and an
+injectable `opener=` parameter so tests never touch the network; the Jira client
+copies that shape exactly. Core dependencies stay `claude-agent-sdk` + `pyyaml`.
+
+**Use REST v2, not v3.** On Jira Cloud both are available, and v3 speaks
+Atlassian Document Format: a `GET` returns the ticket description as an ADF JSON
+tree that must be flattened before it can go in a prompt, and a `POST` comment
+must be built as an ADF tree rather than text. v2 returns and accepts plain
+strings in both directions. There is no capability here that v3 offers and v2
+does not, so v2 removes an entire class of work from both halves of this
+workstream.
+
+### Ticket key discovery
+
+Three sources, all supported, scanned in this precedence order:
+
+1. **A browse link pasted in the PR body** — `…/browse/ABC-123`. Most explicit
+   human intent, so it wins.
+2. **A PR title prefix** — `ABC-123: …`.
+3. **The branch name** — `feature/ABC-123-something`.
+
+**False positives are the real hazard.** A bare `[A-Z][A-Z0-9]+-\d+` pattern
+also matches `UTF-8`, `SHA-256`, `HTTP-2`, `RFC-7231` and `CVE-2024-1234`, all
+of which appear routinely in PR text. The guard: a bare key is accepted only
+when its project prefix is listed in `jira.projects` in `prsentinel.yml`; a key
+arriving as a full browse URL is unambiguous and needs no allowlist.
+
+At most three unique tickets are fetched per PR, to bound cost and context. The
+first key found by precedence is the primary requirement; the rest are context.
+
+### Read
+
+Fetch during the snapshot phase, cache to `ticket.json` as a normal phase
+artifact under I2, and inject the text into the verify prompt inside an
+untrusted block (the W1 helper, which ships here). This upgrades `impact` from
+"does the code match what the author wrote" to "does the code match what the
+business asked for" — the single highest-value change in this document. `impact`
+gains a `requirement_source` field so a verdict says where its requirement came
+from.
+
+A missing, unreachable or permission-denied ticket degrades the review to
+today's behaviour and records why in the report. It never fails the run.
+
+### Write — comment only
+
+A deterministic module in the shape of `src/notify.py`, running after scoring,
+reading `score.json` and `findings.json`, posting one comment with the merge
+decision, failed claims and a PR link.
+
+Idempotent the way `synthesize.py` is: the comment carries a marker,
+`GET /rest/api/2/issue/{key}/comment` finds the previous one, and the module
+issues a `PUT` on that comment id instead of appending on every run. Without
+this, a PR that is pushed to ten times leaves ten bot comments on the ticket.
+
+Only the primary ticket is commented on, even when several were read. Off by
 default in `prsentinel.yml` alongside `auto_describe` and `docs_fix_pr`.
 
 **Boundary — this workstream never transitions status, never edits fields,
@@ -236,22 +309,27 @@ then it is speculative infrastructure.
 ## Dependency order
 
 ```
-W0 (bug fix)  →  W1  →  W2
-                  ↓
-                 W3
+W0 (bug fix)  →  W3 (+ untrusted-block helper)  →  W1  →  W2
 ```
 
-W0 first: it is small, it fixes money currently being burned on every PR
-comment, and it needs no design decisions.
+**Revised on 2026-08-17**, after the operating context was confirmed. The first
+draft put W1 ahead of W3 on the argument that ticket text is a new class of
+untrusted input. With private internal repositories and no fork PRs, that
+argument no longer justifies holding back the highest-value change: the helper
+itself is small, so it ships inside W3 and W1 keeps the rest.
 
-W1 before W3, because W3 introduces a new class of untrusted text (ticket
-descriptions written by anyone with Jira access) and should land into a codebase
-that already has the untrusted-block helper.
+W0 first: small, needs no design decisions, and it stops money currently being
+burned on every PR comment.
 
-W1 before W2, because W2 adds new agent passes whose cost belongs under the tier
-routing W1 establishes.
+W3 second: reviewing code against the real requirement instead of the PR
+author's own description is the largest single improvement available, and
+nothing else blocks it now.
 
-W2 and W3 are independent of each other and may run in either order.
+W1 third: the remaining hardening plus the two cost levers — format-only
+pruning and tier routing.
+
+W2 last: it adds new agent passes, whose cost belongs under the tier routing W1
+establishes.
 
 ## Decisions
 
@@ -270,6 +348,16 @@ W2 and W3 are independent of each other and may run in either order.
 9. Jira writes are comments only, idempotent, opt-in, and performed outside the
    agent loop.
 10. No MCP server until `allow_bash` needs to be on by default.
+11. Jira Cloud over REST **v2**, not v3 — v2 exchanges plain strings where v3
+    requires Atlassian Document Format in both directions.
+12. Jira credentials live in the environment (`JIRA_BASE_URL`, `JIRA_EMAIL`,
+    `JIRA_API_TOKEN`), never in `prsentinel.yml`. No new dependency: the client
+    uses `urllib.request` with an injectable opener, as `src/notify.py` does.
+13. A bare ticket key is honoured only when its project prefix appears in
+    `jira.projects`; a full browse URL needs no allowlist. Without this guard
+    `UTF-8` and `CVE-2024-1234` parse as tickets.
+14. The untrusted-block helper ships with W3 rather than W1, so business value
+    is not held behind hardening that internal repositories need less urgently.
 
 ## Out of scope
 
@@ -282,25 +370,36 @@ W2 and W3 are independent of each other and may run in either order.
 
 ## Acceptance
 
+Listed in execution order.
+
 - **W0** — a comment on a PR in CI produces a follow-up run whose recorded cost
   in `usage.json` is materially below a full verify, and `run.py` logs that it
   resumed rather than re-reviewed.
-- **W1** — a PR whose body contains an injection attempt is reviewed with
-  correct verdicts, the attempt appears in the findings, and a format-only
-  commit produces an empty or near-empty diff context.
+- **W3** — a ticket key is found from each of the three sources; `UTF-8` and
+  `CVE-2024-1234` in a PR body are not mistaken for tickets; the review cites
+  the ticket's requirement text with `requirement_source` on `impact`; the
+  ticket carries exactly one bot comment regardless of how many times the review
+  runs; and a ticket that 404s or 403s degrades the review instead of failing it.
+- **W1** — a PR body carrying an injection attempt is reviewed with correct
+  verdicts and the report states that text was neutralized; a format-only commit
+  produces an empty or near-empty diff context; a docs-only PR and a PR touching
+  a `sensitive_areas` path resolve to different tiers, visible in `usage.json`.
 - **W2** — findings with an in-diff `file:line` appear as inline comments in one
   review event; out-of-diff findings appear in the summary; a `BROKEN` finding
   carries a runnable, clearly-labelled PoC test.
-- **W3** — a PR linked to a ticket is reviewed against the ticket's requirement
-  text, `impact` cites `requirement_source`, and the ticket carries exactly one
-  bot comment regardless of how many times the review runs.
 
-## Open questions
+## Resolved questions
 
-1. **Jira deployment** — Cloud (email + API token) or Server/Data Center (PAT)?
-   This changes the auth model and the REST path in W3.
-2. **Trust boundary of the reviewed repos** — private/internal only, or public
-   with fork PRs? This decides whether W0 tiers 1–2 are ever reachable and how
-   much weight W1 deserves.
-3. **Where the ticket link lives** — branch name convention, PR title prefix, or
-   a body field? Determines the parser in W3.
+1. **Jira deployment** — Cloud, email + API token. Settles the auth model and,
+   with decision 11, the REST version.
+2. **Trust boundary** — private internal repositories, no fork PRs. Makes W0
+   tiers 1–2 the normal path and lowers W1's priority relative to W3.
+3. **Ticket key location** — all three: branch name, PR title prefix, and a
+   link pasted into the PR body. Settles the parser and its precedence order.
+
+## Still open
+
+None blocking. Two items to settle inside their own workstream specs rather
+than here: the exact tier thresholds in W1 (diff size and file-type cutoffs are
+easier to choose against real `usage.json` data than in advance), and the
+`jira.projects` allowlist values, which are a deployment detail.
