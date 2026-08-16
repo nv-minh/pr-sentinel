@@ -80,7 +80,18 @@ describe('PipelineGraph', () => {
   it('keeps the canvas free of focusable elements while it is aria-hidden', () => {
     render(<PipelineGraph pipeline={PIPELINE} selected={null} onSelect={() => {}} />)
     const hidden = container.querySelector('[aria-hidden="true"]')!
-    const focusable = hidden.querySelectorAll('[tabindex="0"], button')
+    // Covers every natively- or explicitly-focusable tag/attribute combo, not
+    // just [tabindex="0"] and <button> — React Flow's attribution anchor
+    // (<a href>) is real and stays in the DOM for licence reasons, so this
+    // must also exclude anything explicitly opted out via tabindex="-1"
+    // (which is exactly what PipelineGraph.tsx does for that anchor).
+    // Without the wider selector, the next focusable element of a different
+    // tag (an <a>, an <input>, ...) would slip through unnoticed, just like
+    // the attribution link did.
+    const candidates = hidden.querySelectorAll(
+      '[tabindex="0"], button, a[href], input, select, textarea, [contenteditable]',
+    )
+    const focusable = Array.from(candidates).filter((el) => el.getAttribute('tabindex') !== '-1')
     expect(focusable).toHaveLength(0)
   })
 

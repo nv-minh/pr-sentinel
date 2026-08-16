@@ -1,6 +1,6 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import {
-  Background, MiniMap, ReactFlow, type Edge, type Node,
+  Background, ReactFlow, type Edge, type Node,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import type { Pipeline } from '../api'
@@ -29,6 +29,20 @@ export default function PipelineGraph({
 }) {
   const [theme] = useTheme()
   const still = prefersReducedMotion()
+  const wrapperRef = useRef<HTMLDivElement>(null)
+
+  // React Flow's attribution link ("React Flow", bottom-right of the canvas)
+  // is required by its licence to stay visible — paying to hide it via
+  // proOptions.hideAttribution is not an option here — but it is still a real
+  // <a href> and the only focusable element left inside this aria-hidden
+  // canvas. There is no prop to take it out of the tab order, so reach into
+  // the DOM directly. Do not remove this effect to "clean up" a stray
+  // tabindex: PipelineGraph.test.tsx asserts the canvas has zero focusable
+  // descendants, and this is what keeps that true.
+  useEffect(() => {
+    const link = wrapperRef.current?.querySelector('.react-flow__attribution a')
+    link?.setAttribute('tabindex', '-1')
+  })
 
   const nodes: Node[] = useMemo(
     () => pipeline.nodes.map((node) => ({
@@ -65,7 +79,7 @@ export default function PipelineGraph({
 
   return (
     <div>
-      <div className="h-[380px] rounded border border-hairline bg-paper" aria-hidden="true">
+      <div ref={wrapperRef} className="h-[380px] rounded border border-hairline bg-paper" aria-hidden="true">
         <ReactFlow
           nodes={nodes}
           edges={edges}
@@ -82,8 +96,6 @@ export default function PipelineGraph({
           maxZoom={1.4}
         >
           <Background gap={18} size={1} color="var(--hairline)" />
-          <MiniMap pannable zoomable
-                   nodeColor={(n) => TONE_COLOR[STATUS_TONE[(n.data as { status: Pipeline['nodes'][number]['status'] }).status]]} />
         </ReactFlow>
       </div>
 
