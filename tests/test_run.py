@@ -374,3 +374,32 @@ def test_unanchorable_findings_reach_the_summary_comment(tmp_path, monkeypatch):
     assert main(["demo/app", "7", "--skip-human"]) == 0
     assert "orphan" in bodies[0]
     assert "could not be anchored" in bodies[0]
+
+
+def test_a_clean_review_never_pays_for_the_poc_pass(tmp_path, monkeypatch):
+    _patch_pipeline(monkeypatch, tmp_path, [], [])
+
+    def fail(*a, **kw):
+        raise AssertionError("draft_pocs must not run without a BROKEN finding")
+
+    monkeypatch.setattr("poc.draft_pocs", fail)
+    assert main(["demo/app", "7", "--no-post", "--skip-human"]) == 0
+
+
+def test_a_broken_finding_triggers_the_poc_pass(tmp_path, monkeypatch):
+    called = []
+    broken_findings = {**FINDINGS, "callers_outside_diff": [
+        {"symbol": "charge", "defined_at": "a.py:1", "callers": [], "risk": "BROKEN",
+         "note": "n"}]}
+    _patch_pipeline(monkeypatch, tmp_path, [], [])
+
+    def fake_verify(cfg, workspace, session_dir, snapshot, claims, ticket=None, runner=None):
+        session_dir.mkdir(parents=True, exist_ok=True)
+        (session_dir / "findings.json").write_text(json.dumps(broken_findings))
+        return dict(broken_findings)
+
+    monkeypatch.setattr("verify.run_verify", fake_verify)
+    monkeypatch.setattr("poc.draft_pocs",
+                        lambda *a, **kw: called.append(1) or [])
+    assert main(["demo/app", "7", "--no-post", "--skip-human"]) == 0
+    assert called == [1]

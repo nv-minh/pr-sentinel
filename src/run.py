@@ -287,10 +287,23 @@ def main(argv: list[str] | None = None) -> int:
         claims = json.loads((session_dir / "claims.json").read_text())
 
         if args.fixtures is None:
+            import poc
             section, doc_comments = _remediate(review_cfg, cfg, owner, repo, int(num),
                                                session_dir / "workspace", session_dir,
                                                snapshot, findings, post)
             extra_comment = "\n\n".join(x for x in (extra_comment, section) if x)
+
+            if review_cfg.get("poc_tests", True) and poc.broken(findings):
+                pocs = _load_or_skip("poc.json", session_dir, args.force)
+                if pocs is None:
+                    try:
+                        pocs = poc.draft_pocs(findings, cfg, session_dir / "workspace",
+                                              session_dir)
+                    except RuntimeError as e:
+                        print(f"[run] PoC test drafting failed: {e}", file=sys.stderr)
+                        pocs = []
+                extra_comment = "\n\n".join(
+                    x for x in (extra_comment, poc.comment_section(pocs)) if x)
 
         report = build_report(snapshot, claims, findings, answers, session_dir,
                               scores=scores, cost_usd=total_cost(session_dir))
@@ -301,7 +314,8 @@ def main(argv: list[str] | None = None) -> int:
         import annotations
         inline, orphans = annotations.split(
             doc_comments + annotations.candidates(findings),
-            annotations.diff_lines(snapshot))
+            annotations.diff_lines(snapshot),
+            cap=review_cfg.get("max_inline_comments", annotations.MAX_INLINE))
         if orphans:
             extra_comment = "\n\n".join(x for x in (extra_comment, _orphan_section(orphans)) if x)
         if post and inline:

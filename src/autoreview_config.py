@@ -29,6 +29,8 @@ DEFAULTS = {
     "auto_describe": False,     # rewrite an empty PR body
     "docs_fix_pr": False,       # open a follow-up PR with doc fixes
     "inline_suggestions": True,  # suggestion blocks on docs inside the diff
+    "poc_tests": True,          # generate a failing test for each BROKEN finding
+    "max_inline_comments": 20,  # per review; the rest go in the summary comment
     # Jira. Credentials live in the environment, never here.
     "jira": {"projects": [], "comment_result": False},
     "gate": dict(DEFAULT_GATE),

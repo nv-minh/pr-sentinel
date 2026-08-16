@@ -1,6 +1,8 @@
 """Phase 5: turn findings into report.md and into one comment on the PR."""
+import json
 from pathlib import Path
 
+import poc
 import untrusted
 from gh import run_gh
 
@@ -121,6 +123,14 @@ def build_report(snapshot: dict, claims: list[dict], findings: dict,
         _table(lines, "Neutralized in untrusted text", ["Phase", "What was stripped"],
                [[entry["phase"], _cell(item)]
                 for entry in neutralized for item in entry["items"]])
+
+    try:
+        pocs = json.loads((session_dir / "poc.json").read_text())
+    except (OSError, json.JSONDecodeError):
+        pocs = []
+    section = poc.comment_section(pocs)
+    if section:
+        lines += ["", section]
 
     lines += ["", "## Confirmation log", ""]
     for a in answers:

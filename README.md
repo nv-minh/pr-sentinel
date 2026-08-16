@@ -25,6 +25,20 @@ Everything else follows from those: doc fixes come back as GitHub suggestions,
 an empty PR body gets a drafted description, and replies on the PR are answered
 by resuming the previous agent session instead of re-reviewing from scratch.
 
+### Where the findings land
+
+Findings that point at a line inside the diff are posted as **one** review event
+anchored to those lines — documentation fixes as one-click `suggestion` blocks,
+everything else as a comment on the line it is about. Anything GitHub will not
+accept inline goes into the summary comment under "Findings that could not be
+anchored to the diff". That includes most `callers_outside_diff` results, which
+are by definition about code the PR did not touch.
+
+When a review finds something `BROKEN`, a second pass writes the smallest test
+that reproduces it, using the framework detected from the repository. Those tests
+are **generated and not executed** — they are shown so the author can run them,
+never applied to the branch.
+
 ## Install
 
 Requires Python 3.10+ and an authenticated `gh` CLI.

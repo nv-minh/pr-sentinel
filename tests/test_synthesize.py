@@ -1,3 +1,5 @@
+import json
+
 from synthesize import _overall_verdict, build_comment, build_report, post_comment
 
 SNAPSHOT = {
@@ -137,3 +139,16 @@ def test_report_names_what_was_neutralized(tmp_path):
 def test_report_has_no_neutralized_section_when_nothing_was_stripped(tmp_path):
     report = build_report(SNAPSHOT, CLAIMS, FINDINGS, [], tmp_path)
     assert "Neutralized in untrusted text" not in report
+
+
+def test_report_includes_generated_tests(tmp_path):
+    (tmp_path / "poc.json").write_text(json.dumps(
+        [{"target": "src/pay.py", "framework": "pytest",
+          "test_code": "def test_x(): assert False", "why_it_fails": "returns 1"}]))
+    report = build_report(SNAPSHOT, CLAIMS, FINDINGS, [], tmp_path)
+    assert "not been executed" in report
+    assert "def test_x" in report
+
+
+def test_report_has_no_test_section_without_pocs(tmp_path):
+    assert "not been executed" not in build_report(SNAPSHOT, CLAIMS, FINDINGS, [], tmp_path)
