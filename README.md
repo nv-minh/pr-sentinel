@@ -206,7 +206,7 @@ never needs write access to report.
 ## Tests
 
 ```bash
-python -m pytest -q            # 259 tests
+python -m pytest -q            # 262 tests
 (cd web/ui && npm test -- --run)
 ```
 

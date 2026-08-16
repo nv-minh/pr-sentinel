@@ -10,6 +10,14 @@
 
 **Spec:** `docs/superpowers/specs/2026-08-17-integrations-and-hardening.md` — section "W0 — Reply state durability".
 
+> **Deviation during implementation:** the CI restore ships as a per-PR
+> **artifact** fetched through the `/actions/artifacts` REST API (plus an
+> `actions: read` permission), not `actions/cache@v4` — see the amendment in
+> the spec's W0 section. Actions caches are branch-scoped, so a cache saved
+> during the `pull_request` run is invisible to the `issue_comment` run that
+> `--reply` exists to serve. The task bodies below still show the original
+> cache step as written.
+
 ## Global Constraints
 
 - Core runtime dependencies stay exactly `claude-agent-sdk>=0.2.139` and `pyyaml`. No HTTP client, no database driver, no async test plugin.
