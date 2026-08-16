@@ -22,7 +22,7 @@ FINDINGS = {
 
 def test_body_states_the_gate_and_the_score():
     body = build_body(SNAPSHOT, FINDINGS, SCORES)
-    assert "fail" in body
+    assert "fail" in body.lower()
     assert "50%" in body
     assert "high" in body
 
@@ -59,10 +59,17 @@ def test_a_clean_review_says_so():
 def test_post_creates_a_comment_when_none_exists(monkeypatch):
     calls = {}
     monkeypatch.setattr(jira_client, "list_comments", lambda *a, **kw: [])
-    monkeypatch.setattr(jira_client, "add_comment",
-                        lambda cfg, key, body, **kw: calls.setdefault("add", (key, body)) or True)
-    monkeypatch.setattr(jira_client, "update_comment",
-                        lambda *a, **kw: calls.setdefault("update", True) or True)
+
+    def fake_add(cfg, key, body, **kw):
+        calls.setdefault("add", (key, body))
+        return True
+
+    def fake_update(*a, **kw):
+        calls.setdefault("update", True)
+        return True
+
+    monkeypatch.setattr(jira_client, "add_comment", fake_add)
+    monkeypatch.setattr(jira_client, "update_comment", fake_update)
     assert post_result(CFG, "ABC-1", "body " + MARKER) is True
     assert calls["add"] == ("ABC-1", "body " + MARKER)
     assert "update" not in calls
@@ -74,11 +81,17 @@ def test_post_updates_the_existing_marked_comment(monkeypatch):
         {"id": "10", "body": "unrelated human comment"},
         {"id": "11", "body": "older report\n" + MARKER},
     ])
-    monkeypatch.setattr(jira_client, "add_comment",
-                        lambda *a, **kw: calls.setdefault("add", True) or True)
-    monkeypatch.setattr(jira_client, "update_comment",
-                        lambda cfg, key, cid, body, **kw:
-                            calls.setdefault("update", (key, cid)) or True)
+
+    def fake_add(*a, **kw):
+        calls.setdefault("add", True)
+        return True
+
+    def fake_update(cfg, key, cid, body, **kw):
+        calls.setdefault("update", (key, cid))
+        return True
+
+    monkeypatch.setattr(jira_client, "add_comment", fake_add)
+    monkeypatch.setattr(jira_client, "update_comment", fake_update)
     assert post_result(CFG, "ABC-1", "new " + MARKER) is True
     assert calls["update"] == ("ABC-1", "11")
     assert "add" not in calls
