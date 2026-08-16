@@ -4,6 +4,7 @@ from pathlib import Path
 
 import yaml
 
+import providers
 from score import DEFAULT_GATE
 
 DEFAULTS = {
@@ -14,6 +15,10 @@ DEFAULTS = {
     "skip_human": True,
     "drafts": False,
     "skip_bots": True,
+    # Where LLM calls go. `providers` holds per-provider overrides; tokens are
+    # never stored here, only the name of the env var that holds them.
+    "provider": "anthropic",
+    "providers": {},
     # Review behaviour
     "allow_bash": False,        # let the agent run git/grep in the workspace
     "max_turns": 60,
@@ -35,6 +40,7 @@ def load_config(path: Path) -> dict:
     cfg = {**DEFAULTS, **raw}
     cfg["repos"] = _normalize_repos(cfg.get("repos") or {})
     cfg["gate"] = {**DEFAULT_GATE, **(raw.get("gate") or {})}
+    cfg["providers"] = dict(raw.get("providers") or {})
     validate_config(cfg)
     return cfg
 
@@ -58,6 +64,7 @@ def validate_config(cfg: dict) -> None:
     minimum = cfg.get("gate", {}).get("verification_score_min")
     if not isinstance(minimum, (int, float)) or not 0 <= minimum <= 1:
         raise ValueError("gate.verification_score_min must be between 0 and 1")
+    providers.validate(cfg)
 
 
 def _write_atomic(path: Path, cfg: dict) -> None:
@@ -124,3 +131,15 @@ def list_repos(path: Path, gh=None) -> list[dict]:
             pass
     return [{"name": n, "mode": cfg["repos"].get(n, "unlisted")}
             for n in sorted(names)]
+
+
+def set_provider(path: Path, name: str) -> dict:
+    """Switch the active provider. Writes only the `provider:` key."""
+    cfg = load_config(path)
+    providers.build(name, cfg["providers"].get(name))
+    if name not in providers.BUILTIN and name not in cfg["providers"]:
+        raise ValueError(f"provider {name!r} is not built in and not defined "
+                         f"under providers:")
+    cfg["provider"] = name
+    _write_atomic(path, cfg)
+    return cfg

@@ -1,8 +1,8 @@
 # tests/test_autoreview_config.py
 import pytest
 
-from autoreview_config import (auto_repos, list_repos, load_config,
-                               remove_repo, set_repo_mode)
+from autoreview_config import (DEFAULTS, auto_repos, list_repos, load_config,
+                               remove_repo, set_provider, set_repo_mode)
 
 NEW_YML = """
 org: sample-org
@@ -112,3 +112,57 @@ def test_list_repos_without_org(tmp_path):
     p = _write(tmp_path / "a.yml", "repos:\n  sample-app: auto\n")
     rows = list_repos(p, gh=lambda args, **kw: None)  # gh không được gọi
     assert rows == [{"name": "sample-app", "mode": "auto"}]
+
+
+def test_defaults_include_the_provider_block():
+    assert DEFAULTS["provider"] == "anthropic"
+    assert DEFAULTS["providers"] == {}
+
+
+def test_load_config_defaults_to_anthropic(tmp_path):
+    cfg = load_config(_write(tmp_path / "prsentinel.yml", "repos:\n  app: auto\n"))
+    assert cfg["provider"] == "anthropic"
+    assert cfg["providers"] == {}
+
+
+def test_load_config_keeps_a_custom_provider(tmp_path):
+    cfg = load_config(_write(tmp_path / "prsentinel.yml", """
+provider: gw
+providers:
+  gw:
+    base_url: https://llm.internal/anthropic
+    token_env: GW_TOKEN
+    model: big
+    claims_model: small
+repos:
+  app: auto
+"""))
+    assert cfg["provider"] == "gw"
+    assert cfg["providers"]["gw"]["model"] == "big"
+
+
+def test_load_config_rejects_an_undefined_provider(tmp_path):
+    path = _write(tmp_path / "prsentinel.yml", "provider: nope\nrepos:\n  app: auto\n")
+    with pytest.raises(ValueError, match="not built in"):
+        load_config(path)
+
+
+def test_load_config_rejects_an_incomplete_custom_provider(tmp_path):
+    path = _write(tmp_path / "prsentinel.yml", "provider: gw\nproviders:\n  gw:\n    model: big\n")
+    with pytest.raises(ValueError, match="not built in"):
+        load_config(path)
+
+
+def test_set_provider_writes_only_the_selection(tmp_path):
+    path = _write(tmp_path / "prsentinel.yml", "provider: anthropic\nrepos:\n  app: auto\n")
+    cfg = set_provider(path, "deepseek")
+    assert cfg["provider"] == "deepseek"
+    assert load_config(path)["provider"] == "deepseek"
+    assert "token" not in path.read_text().lower()
+    assert load_config(path)["repos"] == {"app": "auto"}
+
+
+def test_set_provider_rejects_an_unknown_name(tmp_path):
+    path = _write(tmp_path / "prsentinel.yml", "repos:\n  app: auto\n")
+    with pytest.raises(ValueError, match="not built in"):
+        set_provider(path, "nope")

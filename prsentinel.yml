@@ -6,6 +6,20 @@ post_comment: true
 skip_human: true
 drafts: false
 skip_bots: true
+# Where LLM calls go. Built in: anthropic (default), deepseek, glm.
+# Tokens are NEVER stored here — set them in .env:
+#   anthropic -> ANTHROPIC_API_KEY   deepseek -> DEEPSEEK_API_KEY   glm -> ZAI_API_KEY
+provider: anthropic
+providers: {}
+# Example of a gateway that is not built in — every key below is required:
+# providers:
+#   my-gateway:
+#     base_url: https://llm.internal.example.com/anthropic
+#     token_env: MY_GATEWAY_TOKEN
+#     model: big-model
+#     claims_model: small-model
+#     structured_output: prompt   # native only if it implements Anthropic's
+#     reports_cost: false         # structured-outputs beta and prices in USD
 
 # Review behaviour
 allow_bash: false           # let the agent run git/grep inside the workspace clone
