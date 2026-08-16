@@ -124,6 +124,30 @@ export interface ReviewStatus {
   last?: { exit?: number; finished_at?: string }
 }
 
+export type PhaseStatus = 'done' | 'running' | 'pending' | 'skipped' | 'failed'
+
+export interface GraphNode {
+  id: string
+  label: string
+  status: PhaseStatus
+  artifact: string
+  cost_usd: number | null
+  duration_ms: number | null
+  model: string
+  metrics: { label: string; value: string | number }[]
+}
+
+export interface GraphEdge {
+  source: string
+  target: string
+}
+
+export interface Pipeline {
+  nodes: GraphNode[]
+  edges: GraphEdge[]
+  running: boolean
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, {
     headers: { 'Content-Type': 'application/json' },
@@ -150,6 +174,8 @@ export const api = {
     request<PrDetail>(`/api/repos/${owner}/${repo}/pr/${pr}`),
   report: (owner: string, repo: string, pr: number) =>
     request<{ markdown: string }>(`/api/repos/${owner}/${repo}/pr/${pr}/report`),
+  graph: (owner: string, repo: string, pr: number) =>
+    request<Pipeline>(`/api/repos/${owner}/${repo}/pr/${pr}/graph`),
   config: () => request<any>('/api/config'),
   setProvider: (name: string) =>
     request<any>('/api/config/provider', {
