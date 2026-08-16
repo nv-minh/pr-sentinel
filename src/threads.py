@@ -23,16 +23,22 @@ def _bot_comment(comments: list) -> dict | None:
 
 
 def fetch_replies(owner: str, repo: str, n: int, *, gh=run_gh) -> list[dict]:
-    """Comments written after the bot's own review comment, by anyone else.
+    """Comments written after the bot's review comment, by anyone else.
 
     Covers both conversation comments and inline review replies; the bot's own
     comments are excluded so it never answers itself.
+
+    The floor is the bot comment's `created_at`, never its `updated_at`: the
+    bot PATCHes its comment in place at the end of every run, which advances
+    `updated_at` past any reply that landed while that run was in flight —
+    such a reply would otherwise be invisible forever. Stale results are
+    filtered out by `unseen()` against `replies.json` instead.
     """
     issue_comments = gh(["api", f"repos/{owner}/{repo}/issues/{n}/comments", "--paginate"])
     bot = _bot_comment(issue_comments)
     if bot is None:
         return []
-    since = bot.get("updated_at") or bot.get("created_at") or ""
+    since = bot.get("created_at") or bot.get("updated_at") or ""
     bot_login = (bot.get("user") or {}).get("login", "")
 
     replies: list[dict] = []
@@ -62,15 +68,32 @@ def unseen(session_dir: Path, replies: list[dict]) -> list[dict]:
     """Replies this session has not answered yet."""
     path = session_dir / "replies.json"
     try:
-        seen = {r.get("id") for r in json.loads(path.read_text())}
+        seen = {r.get("id") for r in json.loads(path.read_text())
+                if isinstance(r, dict)}
     except (OSError, json.JSONDecodeError):
         seen = set()
     return [r for r in replies if r.get("id") not in seen]
 
 
 def save_replies(session_dir: Path, replies: list[dict]) -> None:
+    """Record replies as answered. Merges by id — the set only grows.
+
+    The caller passes only what this run actually answered, never a fresh
+    fetch of everything: a reply that landed mid-run must stay unseen so the
+    next run answers it. And because fetch_replies re-returns every reply
+    since the bot's first comment, overwriting would resurrect earlier
+    rounds' replies as unseen.
+    """
+    path = session_dir / "replies.json"
+    try:
+        answered = json.loads(path.read_text())
+        merged = {r.get("id"): r for r in answered if isinstance(r, dict)}
+    except (OSError, json.JSONDecodeError):
+        merged = {}
+    for r in replies:
+        merged[r.get("id")] = r
     session_dir.mkdir(parents=True, exist_ok=True)
-    (session_dir / "replies.json").write_text(json.dumps(replies, indent=2))
+    path.write_text(json.dumps(list(merged.values()), indent=2))
 
 
 def previous_session(session_dir: Path) -> str:

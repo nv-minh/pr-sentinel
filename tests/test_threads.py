@@ -48,6 +48,27 @@ def test_fetch_replies_without_a_review_yet():
     assert fetch_replies("o", "r", 7, gh=_gh([OLD_COMMENT])) == []
 
 
+def test_fetch_replies_ignores_the_bots_edits():
+    """A PATCH of the bot comment must not bury a reply that landed mid-run."""
+    patched = dict(BOT_COMMENT, updated_at="2026-01-01T18:00:00Z")
+    mid_run = {"id": 9, "body": "what about this?", "user": {"login": "dev2"},
+               "created_at": "2026-01-01T12:00:00Z"}
+    replies = fetch_replies("o", "r", 7, gh=_gh([patched, mid_run]))
+    assert [r["id"] for r in replies] == [9]
+
+
+def test_save_replies_merges_instead_of_overwriting(tmp_path):
+    save_replies(tmp_path, [{"id": 2, "body": "first round"}])
+    save_replies(tmp_path, [{"id": 9, "body": "second round"}])
+    saved = json.loads((tmp_path / "replies.json").read_text())
+    assert {r["id"] for r in saved} == {2, 9}
+
+
+def test_unseen_ignores_a_corrupt_replies_file(tmp_path):
+    (tmp_path / "replies.json").write_text('"not a list"')
+    assert unseen(tmp_path, [{"id": 2}]) == [{"id": 2}]
+
+
 def test_unseen_filters_already_answered_replies(tmp_path):
     save_replies(tmp_path, [{"id": 2}])
     assert [r["id"] for r in unseen(tmp_path, [{"id": 2}, {"id": 3}])] == [3]

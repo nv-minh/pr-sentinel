@@ -233,8 +233,9 @@ def main(argv: list[str] | None = None) -> int:
                     print(f"[run] follow-up could not resume ({e}) — full re-review",
                           file=sys.stderr)
                     findings = run_verify(cfg, workspace, session_dir, snapshot, claims)
-                threads.save_replies(session_dir,
-                                     threads.fetch_replies(owner, repo, int(num)))
+                # Only what this run answered: a reply that landed while the
+                # follow-up was running stays unseen, so the next run takes it.
+                threads.save_replies(session_dir, fresh)
                 (session_dir / "answers.json").unlink(missing_ok=True)
                 _bump_rounds(session_dir)
 
