@@ -45,14 +45,6 @@ class Config:
     session_root: Path
     slack_webhook: str
 
-    def has_auth(self) -> bool:
-        """True if the SDK can authenticate: a token, or a logged-in CLI.
-
-        Deprecated: auth depends on which provider is active — see
-        `providers.has_auth()`. Kept until run.py and web/server.py move over.
-        """
-        return bool(self.api_key or self.auth_token) or CLI_CONFIG.exists()
-
 
 def load_config() -> Config:
     return Config(

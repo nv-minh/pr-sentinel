@@ -137,6 +137,17 @@ def test_main_repos_lists_status(tmp_path, monkeypatch, capsys):
     assert "sample-app" in out and "auto" in out
 
 
+def test_main_refuses_a_provider_without_a_token(tmp_path, monkeypatch, capsys):
+    cfg_path = tmp_path / "prsentinel.yml"
+    cfg_path.write_text("provider: deepseek\n")
+    monkeypatch.setattr("autoreview.CONFIG_PATH", cfg_path)
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_AUTH_TOKEN", raising=False)
+    monkeypatch.setenv("PRS_SESSION_ROOT", str(tmp_path / "sessions"))
+    assert main([]) == 3
+    assert "DEEPSEEK_API_KEY" in capsys.readouterr().err
+
+
 def test_run_pass_skips_manual_review_lock(tmp_path, monkeypatch, capsys):
     root = tmp_path / "sessions"
     root.mkdir(parents=True)

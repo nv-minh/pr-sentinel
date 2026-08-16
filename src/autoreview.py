@@ -13,9 +13,10 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+import providers
 from autoreview_config import auto_repos, list_repos, load_config, \
     remove_repo, set_repo_mode
-from config import AUTH_HINT, load_config as load_env_config
+from config import load_config as load_env_config
 from gh import gh_available, run_gh
 
 CONFIG_PATH = Path("prsentinel.yml")
@@ -220,8 +221,9 @@ def main(argv: list[str] | None = None) -> int:
 
     cfg = load_config(args.config)
     env = load_env_config()
-    if not env.has_auth():
-        print(AUTH_HINT, file=sys.stderr)
+    provider = providers.resolve(cfg)
+    if not providers.has_auth(provider):
+        print(providers.auth_hint(provider), file=sys.stderr)
         return 3
     if not gh_available():
         print("gh CLI not installed or not authenticated (gh auth login)",

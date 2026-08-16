@@ -1,4 +1,4 @@
-from config import Config, load_config
+from config import load_config
 
 ENV_NAMES = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL",
              "PRS_PROVIDER", "PRS_MODEL", "PRS_CLAIMS_MODEL",
@@ -43,30 +43,3 @@ def test_load_config_from_env(monkeypatch):
     assert cfg.claims_model == "deepseek-v4-flash"
     assert str(cfg.session_root) == "/tmp/my-sessions"
     assert cfg.slack_webhook == "https://hooks.slack.test/x"
-
-
-def _config(api_key: str, tmp_path, auth_token: str = "") -> Config:
-    return Config(api_key=api_key, auth_token=auth_token, base_url="", provider="",
-                  model="", claims_model="", session_root=tmp_path, slack_webhook="")
-
-
-def test_has_auth_accepts_api_key(tmp_path, monkeypatch):
-    monkeypatch.setattr("config.CLI_CONFIG", tmp_path / "missing.json")
-    assert _config("sk-ant-test", tmp_path).has_auth() is True
-
-
-def test_has_auth_accepts_auth_token(tmp_path, monkeypatch):
-    monkeypatch.setattr("config.CLI_CONFIG", tmp_path / "missing.json")
-    assert _config("", tmp_path, auth_token="tok").has_auth() is True
-
-
-def test_has_auth_accepts_logged_in_cli(tmp_path, monkeypatch):
-    cli = tmp_path / ".claude.json"
-    cli.write_text("{}")
-    monkeypatch.setattr("config.CLI_CONFIG", cli)
-    assert _config("", tmp_path).has_auth() is True
-
-
-def test_has_auth_false_without_either(tmp_path, monkeypatch):
-    monkeypatch.setattr("config.CLI_CONFIG", tmp_path / "missing.json")
-    assert _config("", tmp_path).has_auth() is False
