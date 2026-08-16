@@ -15,6 +15,7 @@ claim and has to say so.
 import json
 from pathlib import Path
 
+import untrusted
 from agent import READ_ONLY_TOOLS, record_usage
 from agent import run_structured as _default_runner
 
@@ -45,6 +46,7 @@ SYSTEM_PROMPT = (
     "behaviour. You read the real code first and use the project's existing test "
     "conventions, imports and helpers. The test must fail against the current "
     "code for the stated reason — never write a test that passes."
+    + untrusted.SYSTEM_CLAUSE
 )
 
 
@@ -92,8 +94,12 @@ def broken(findings: dict) -> list[dict]:
     return out
 
 
-def build_prompt(items: list[dict], framework: str, language: str = "en") -> str:
-    listed = "\n".join(f"- {b['what']} (in {b['where']})" for b in items)
+def build_prompt(items: list[dict], framework: str, language: str = "en",
+                 found: list[str] | None = None) -> str:
+    listed = untrusted.block(
+        "Broken behaviours",
+        "\n".join(f"- {b['what']} (in {b['where']})" for b in items),
+        found=found)
     tongue = "" if language == "en" else (
         "\n\nWrite `why_it_fails` and every comment inside the test in "
         f"{'Vietnamese' if language == 'vi' else language}.")
@@ -119,9 +125,10 @@ def draft_pocs(findings: dict, cfg: dict, workspace: Path, session_dir: Path,
     items = broken(findings)
     if not items:
         return []
+    found: list[str] = []
     result = runner(
         build_prompt(items, detect_framework(Path(workspace)),
-                     language=cfg.get("language", "en")),
+                     language=cfg.get("language", "en"), found=found),
         schema=POC_SCHEMA,
         cwd=workspace,
         tools=READ_ONLY_TOOLS,
@@ -137,6 +144,7 @@ def draft_pocs(findings: dict, cfg: dict, workspace: Path, session_dir: Path,
     session_dir.mkdir(parents=True, exist_ok=True)
     (session_dir / "poc.json").write_text(json.dumps(pocs, indent=2))
     record_usage(session_dir, "poc", result)
+    untrusted.record_neutralized(session_dir, "poc", found)
     return pocs
 
 

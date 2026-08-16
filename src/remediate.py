@@ -11,6 +11,7 @@ import base64
 import json
 from pathlib import Path
 
+import untrusted
 from agent import READ_ONLY_TOOLS, record_usage
 from agent import run_structured as _default_runner
 from gh import run_gh
@@ -45,6 +46,7 @@ SYSTEM_PROMPT = (
     "You correct documentation so it matches the code. You copy `old_snippet` "
     "verbatim from the file — byte for byte, including indentation — so it can be "
     "replaced mechanically. You change only what is factually wrong."
+    + untrusted.SYSTEM_CLAUSE
 )
 
 
@@ -53,8 +55,13 @@ def fixable_docs(findings: dict) -> list[dict]:
             if d.get("status") in FIXABLE_STATUSES and d.get("path")]
 
 
-def build_prompt(docs: list[dict]) -> str:
-    listed = "\n".join(f"- {d['path']} ({d['status']}): {d.get('what', '')}" for d in docs)
+def build_prompt(docs: list[dict], found: list[str] | None = None) -> str:
+    # `what` is the review agent's account of a doc, written from repository
+    # content — second-hand, but the same provenance as the text it describes.
+    listed = untrusted.block(
+        "Doc findings",
+        "\n".join(f"- {d['path']} ({d['status']}): {d.get('what', '')}" for d in docs),
+        found=found)
     return f"""
 A review found these documentation files out of sync with the code:
 
@@ -73,14 +80,16 @@ def draft_patches(findings: dict, cfg: dict, workspace: Path, session_dir: Path,
     docs = fixable_docs(findings)
     if not docs:
         return []
+    found: list[str] = []
     result = runner(
-        build_prompt(docs),
+        build_prompt(docs, found=found),
         schema=PATCH_SCHEMA,
         cwd=workspace,
         tools=READ_ONLY_TOOLS,
         model=cfg.get("model"),
         system_prompt=SYSTEM_PROMPT,
         max_turns=cfg.get("max_turns", 30),
+        effort=cfg.get("effort"),
         provider=cfg.get("provider"),
     )
     patches = [p for p in result.data.get("patches") or []
@@ -89,6 +98,7 @@ def draft_patches(findings: dict, cfg: dict, workspace: Path, session_dir: Path,
     session_dir.mkdir(parents=True, exist_ok=True)
     (session_dir / "patches.json").write_text(json.dumps(patches, indent=2))
     record_usage(session_dir, "remediate", result)
+    untrusted.record_neutralized(session_dir, "remediate", found)
     return patches
 
 
