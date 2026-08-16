@@ -92,8 +92,11 @@ def broken(findings: dict) -> list[dict]:
     return out
 
 
-def build_prompt(items: list[dict], framework: str) -> str:
+def build_prompt(items: list[dict], framework: str, language: str = "en") -> str:
     listed = "\n".join(f"- {b['what']} (in {b['where']})" for b in items)
+    tongue = "" if language == "en" else (
+        "\n\nWrite `why_it_fails` and every comment inside the test in "
+        f"{'Vietnamese' if language == 'vi' else language}.")
     return f"""
 A review found these behaviours broken:
 
@@ -107,7 +110,7 @@ match their conventions, imports and helpers so the author can paste the test in
 and run it. State in `why_it_fails` the concrete input and the wrong output it
 produces. If you cannot write a test that genuinely fails, skip that item rather
 than inventing one.
-""".strip()
+""".strip() + tongue
 
 
 def draft_pocs(findings: dict, cfg: dict, workspace: Path, session_dir: Path,
@@ -117,7 +120,8 @@ def draft_pocs(findings: dict, cfg: dict, workspace: Path, session_dir: Path,
     if not items:
         return []
     result = runner(
-        build_prompt(items, detect_framework(Path(workspace))),
+        build_prompt(items, detect_framework(Path(workspace)),
+                     language=cfg.get("language", "en")),
         schema=POC_SCHEMA,
         cwd=workspace,
         tools=READ_ONLY_TOOLS,

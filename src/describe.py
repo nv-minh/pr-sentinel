@@ -51,7 +51,8 @@ def needs_description(snapshot: dict, min_chars: int = MIN_BODY_CHARS) -> bool:
     return len(body) < min_chars
 
 
-def build_prompt(snapshot: dict, found: list[str] | None = None) -> str:
+def build_prompt(snapshot: dict, found: list[str] | None = None,
+                 language: str = "en") -> str:
     files = [f"- {f['filename']} (+{f.get('additions', 0)}/-{f.get('deletions', 0)})"
              for f in snapshot.get("files", [])]
     commits = [f"- {c['message'].splitlines()[0]}" for c in snapshot.get("commits", [])
@@ -80,7 +81,9 @@ Diff:
 Follow this template exactly:
 
 {TEMPLATE}
-""".strip()
+""".strip() + ("" if language == "en" else
+               f"\n\nWrite the description and summary in "
+               f"{'Vietnamese' if language == 'vi' else language}.")
 
 
 def draft_description(snapshot: dict, cfg: dict, session_dir: Path,
@@ -88,7 +91,7 @@ def draft_description(snapshot: dict, cfg: dict, session_dir: Path,
     """Generate a description draft. Writes description.json, returns it."""
     found: list[str] = []
     result = runner(
-        build_prompt(snapshot, found=found),
+        build_prompt(snapshot, found=found, language=cfg.get("language", "en")),
         schema=DESCRIPTION_SCHEMA,
         model=cfg.get("claims_model"),
         system_prompt=SYSTEM_PROMPT,

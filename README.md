@@ -149,9 +149,11 @@ a PR was touched after its review was posted — runs the cheap reply pass.
 
 ## Review against the Jira ticket
 
-With Jira configured, the review judges `impact` against the requirement the
-ticket states rather than the description the PR author wrote — and can post the
-merge decision back to the ticket.
+Jira is entirely optional — leave the three variables unset and reviews simply
+run without Jira requirement context, recording why. When it is configured, the
+review judges `impact` against the requirement the ticket states rather than
+the description the PR author wrote — and can post the merge decision back to
+the ticket.
 
 ```bash
 export JIRA_BASE_URL=https://acme.atlassian.net
@@ -254,11 +256,14 @@ dashboard shows whether a key is present, never the key.
 | `PRS_CLAIMS_MODEL` | provider's | Model for claims + description drafting |
 | `PRS_SESSION_ROOT` | `sessions` | Where per-phase results are written |
 | `SLACK_WEBHOOK_URL` | — | Optional one-way notification |
-| `JIRA_BASE_URL` | — | Jira Cloud site, e.g. `https://acme.atlassian.net` |
-| `JIRA_EMAIL` | — | Account the API token belongs to |
-| `JIRA_API_TOKEN` | — | Jira API token (never stored in `prsentinel.yml`) |
+| `JIRA_BASE_URL` | — | *Optional.* Jira Cloud site, e.g. `https://acme.atlassian.net`; unset skips Jira |
+| `JIRA_EMAIL` | — | *Optional.* Account the API token belongs to |
+| `JIRA_API_TOKEN` | — | *Optional.* Jira API token (never stored in `prsentinel.yml`) |
 
-`prsentinel.yml` holds the rest. Four settings write outside the review comment
+`prsentinel.yml` holds the rest. `language: en | vi` (default `en`) sets the
+language the model writes its output in — notes, unresolved questions, drafted
+descriptions and PoC failure reasons; fixed labels and section headers stay
+English. Four settings write outside the review comment
 and three of them are **off by default**: `auto_describe` (rewrites the PR body),
 `docs_fix_pr` (opens a follow-up PR with doc fixes), `jira.comment_result`
 (posts the verdict to the Jira ticket), and `inline_suggestions` (suggestion

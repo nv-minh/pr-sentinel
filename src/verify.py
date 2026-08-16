@@ -22,6 +22,8 @@ ASSERTION_QUALITY = ["STRONG", "WEAK", "MISSING"]
 THREAD_STATUS = ["RESOLVED", "STILL_VALID", "FIXED", "OUTDATED"]
 AREAS = ["payment", "auth", "data", "infra", "other"]
 
+LANGUAGES = {"en": "English", "vi": "Vietnamese"}
+
 
 def _array(item_props: dict, required: list[str]) -> dict:
     return {"type": "array",
@@ -157,7 +159,8 @@ def _requirement_section(ticket: dict | None,
 
 def build_verify_prompt(snapshot: dict, claims: list[dict],
                         ticket: dict | None = None,
-                        found: list[str] | None = None) -> str:
+                        found: list[str] | None = None,
+                        language: str = "en") -> str:
     """Instruct the agent to verify the PR from inside the workspace."""
     files = [f"- {f['filename']} (+{f.get('additions', 0)}/-{f.get('deletions', 0)})"
              for f in snapshot["files"]]
@@ -165,7 +168,7 @@ def build_verify_prompt(snapshot: dict, claims: list[dict],
                + untrusted.block(f"Thread {i}", (t.get("body") or "")[:200], found=found)
                for i, t in enumerate(snapshot.get("threads", []), 1)]
     pruned = [f"- {p['filename']} ({p['reason']})" for p in snapshot.get("pruned", [])]
-    return f"""
+    prompt = f"""
 You are in a checkout of PR #{snapshot['pr']} of {snapshot['owner']}/{snapshot['repo']}.
 
 PR title:
@@ -220,10 +223,14 @@ Produce, in the required schema:
    cases and the file:function each belongs in.
 7. threads — do the unresolved review comments still hold against the current code?
 8. unresolved_questions — anything you could not verify, phrased as a question of
-   at most 20 words, in English.
+   at most 20 words, in {LANGUAGES.get(language, "English")}.
 
 Do not guess. Anything unproven is UNVERIFIED plus a question.
 """.strip()
+    if language not in ("", "en"):
+        name = LANGUAGES.get(language, language)
+        prompt += (f"\n\nWrite every note, detail and question in {name}.")
+    return prompt
 
 
 def validate_findings(data: dict) -> dict:
@@ -252,7 +259,8 @@ def run_verify(cfg: dict, workspace: Path, session_dir: Path, snapshot: dict,
     session_dir.mkdir(parents=True, exist_ok=True)
     tools = BASH_TOOLS if cfg.get("allow_bash") else READ_ONLY_TOOLS
     found: list[str] = []
-    prompt = build_verify_prompt(snapshot, claims, ticket, found=found)
+    prompt = build_verify_prompt(snapshot, claims, ticket, found=found,
+                                 language=cfg.get("language", "en"))
     result = runner(
         prompt,
         schema=FINDINGS_SCHEMA,

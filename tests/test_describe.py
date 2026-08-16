@@ -59,3 +59,8 @@ def test_the_diff_is_wrapped_as_untrusted():
 
 def test_the_describe_system_prompt_explains_untrusted_blocks():
     assert "<<<UNTRUSTED" in SYSTEM_PROMPT
+
+
+def test_a_vietnamese_description_is_requested():
+    prompt = build_prompt(SNAPSHOT, language="vi")
+    assert "Vietnamese" in prompt

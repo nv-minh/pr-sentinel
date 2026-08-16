@@ -217,3 +217,13 @@ def test_jira_comment_result_must_be_a_bool(tmp_path):
     path.write_text("jira:\n  comment_result: yes-please\n")
     with pytest.raises(ValueError, match="jira.comment_result"):
         load_config(path)
+
+
+def test_language_defaults_to_english(tmp_path):
+    cfg = load_config(_write(tmp_path / "a.yml", "org: sample-org\n"))
+    assert cfg["language"] == "en"
+
+
+def test_language_must_be_en_or_vi(tmp_path):
+    with pytest.raises(ValueError, match="language"):
+        load_config(_write(tmp_path / "a.yml", "language: fr\n"))

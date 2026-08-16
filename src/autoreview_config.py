@@ -16,6 +16,9 @@ DEFAULTS = {
     "skip_human": True,
     "drafts": False,
     "skip_bots": True,
+    # The language the model writes its output in (notes, questions,
+    # descriptions, PoC reasons). Fixed labels stay English.
+    "language": "en",
     # Where LLM calls go. `providers` holds per-provider overrides; tokens are
     # never stored here, only the name of the env var that holds them.
     "provider": "anthropic",
@@ -68,6 +71,8 @@ def validate_config(cfg: dict) -> None:
     interval = cfg.get("interval_minutes")
     if not isinstance(interval, int) or interval <= 0:
         raise ValueError("interval_minutes must be a positive integer")
+    if cfg.get("language") not in ("en", "vi"):
+        raise ValueError("language must be 'en' or 'vi'")
     minimum = cfg.get("gate", {}).get("verification_score_min")
     if not isinstance(minimum, (int, float)) or not 0 <= minimum <= 1:
         raise ValueError("gate.verification_score_min must be between 0 and 1")

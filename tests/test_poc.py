@@ -1,7 +1,8 @@
 import json
 
 from agent import AgentResult
-from poc import POC_SCHEMA, broken, comment_section, detect_framework, draft_pocs
+from poc import (POC_SCHEMA, broken, build_prompt, comment_section,
+                 detect_framework, draft_pocs)
 
 FINDINGS = {
     "impact": [
@@ -113,3 +114,8 @@ def test_comment_section_labels_the_test_as_not_executed():
 
 def test_comment_section_is_empty_without_pocs():
     assert comment_section([]) == ""
+
+
+def test_a_vietnamese_poc_prompts_for_vietnamese_reasons():
+    prompt = build_prompt(broken(FINDINGS), "pytest", language="vi")
+    assert "Vietnamese" in prompt

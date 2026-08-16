@@ -46,6 +46,7 @@ def agent_config(env, review_cfg: dict) -> dict:
         "provider": provider,
         "model": provider.model,
         "claims_model": provider.claims_model,
+        "language": review_cfg.get("language", "en"),
         "allow_bash": review_cfg.get("allow_bash", False),
         "max_turns": review_cfg.get("max_turns", 60),
         "max_budget_usd": review_cfg.get("max_budget_usd"),

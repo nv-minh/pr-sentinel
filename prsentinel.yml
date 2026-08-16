@@ -6,6 +6,9 @@ post_comment: true
 skip_human: true
 drafts: false
 skip_bots: true
+# The language the model writes its output in — notes, unresolved questions,
+# drafted descriptions, PoC reasons. Fixed labels stay English. en | vi
+language: en
 # Where LLM calls go. Built in:
 #   anthropic (default) -> api.anthropic.com                -> ANTHROPIC_API_KEY
 #   deepseek            -> https://api.deepseek.com/anthropic -> DEEPSEEK_API_KEY
@@ -40,10 +43,12 @@ auto_describe: false        # rewrite an empty PR body instead of proposing one
 docs_fix_pr: false          # open a follow-up PR carrying the doc fixes
 inline_suggestions: true    # suggestion blocks for docs inside the diff
 
-# Jira. Tokens are NEVER stored here — set JIRA_BASE_URL, JIRA_EMAIL and
-# JIRA_API_TOKEN in .env. `projects` is the allowlist that stops UTF-8 and
-# CVE-2024-1234 being mistaken for ticket keys; a pasted /browse/ link is
-# always honoured without it.
+# Jira (optional — leave this whole block out or leave projects empty if unused;
+# the review simply runs without requirement context). Tokens are NEVER stored
+# here — set JIRA_BASE_URL, JIRA_EMAIL and JIRA_API_TOKEN in .env (also
+# optional; unset means Jira is skipped). `projects` is the allowlist that stops
+# UTF-8 and CVE-2024-1234 being mistaken for ticket keys; a pasted /browse/
+# link is always honoured without it.
 jira:
   projects: []              # e.g. [ABC, PRJ]
   comment_result: false     # post the verdict back to the primary ticket
