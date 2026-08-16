@@ -1,5 +1,6 @@
 """Load, validate and edit prsentinel.yml config (single source of truth)."""
 import os
+import re
 from pathlib import Path
 
 import yaml
@@ -73,6 +74,12 @@ def _write_atomic(path: Path, cfg: dict) -> None:
     os.replace(tmp, path)
 
 
+def _write_text_atomic(path: Path, text: str) -> None:
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(text)
+    os.replace(tmp, path)
+
+
 def set_repo_mode(path: Path, repo: str, mode: str) -> dict:
     """Add or change mode for a repo. Returns the updated config."""
     if mode not in ("auto", "manual"):
@@ -135,9 +142,20 @@ def list_repos(path: Path, gh=None) -> list[dict]:
 
 def set_provider(path: Path, name: str) -> dict:
     """Switch the active provider. Never writes a token: the file records only
-    which provider is active and where it points."""
+    which provider is active and where it points.
+
+    The edit rewrites the one top-level `provider:` line in place, so comments,
+    ordering and formatting in the operator's file survive the switch.
+    """
     cfg = load_config(path)
     providers.build(name, cfg["providers"].get(name))
-    cfg["provider"] = name
-    _write_atomic(path, cfg)
-    return cfg
+    text = path.read_text() if path.exists() else ""
+    if re.search(r"(?m)^provider:", text):
+        text = re.sub(r"(?m)^provider:[ \t]*.*$",
+                      lambda _m: f"provider: {name}", text, count=1)
+    elif text.strip():
+        text = text.rstrip("\n") + f"\nprovider: {name}\n"
+    else:
+        text = f"provider: {name}\n"
+    _write_text_atomic(path, text)
+    return load_config(path)

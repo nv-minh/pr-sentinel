@@ -162,6 +162,29 @@ def test_set_provider_writes_only_the_selection(tmp_path):
     assert load_config(path)["repos"] == {"app": "auto"}
 
 
+def test_set_provider_preserves_comments_and_formatting(tmp_path):
+    path = _write(tmp_path / "prsentinel.yml", (
+        "# PR Sentinel configuration.\n"
+        "interval_minutes: 2   # fast loop\n"
+        "provider: anthropic\n"
+        "providers: {}\n"
+        "repos:\n"
+        "  app: auto\n"))
+    set_provider(path, "deepseek")
+    out = path.read_text()
+    assert "# PR Sentinel configuration." in out
+    assert "# fast loop" in out
+    assert "provider: deepseek" in out
+    assert "provider: anthropic" not in out
+
+
+def test_set_provider_adds_the_key_when_missing(tmp_path):
+    path = _write(tmp_path / "prsentinel.yml", "repos:\n  app: auto\n")
+    cfg = set_provider(path, "glm")
+    assert cfg["provider"] == "glm"
+    assert load_config(path)["provider"] == "glm"
+
+
 def test_set_provider_rejects_an_unknown_name(tmp_path):
     path = _write(tmp_path / "prsentinel.yml", "repos:\n  app: auto\n")
     with pytest.raises(ValueError, match="not built in"):
