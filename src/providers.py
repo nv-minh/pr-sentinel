@@ -66,7 +66,7 @@ OVERRIDABLE = ("base_url", "token_env", "model", "claims_model",
 REQUIRED_CUSTOM = ("base_url", "token_env", "model", "claims_model")
 
 
-def build(name, overrides=None):
+def build(name: str, overrides: dict | None = None) -> Provider:
     """A Provider from its built-in preset plus prsentinel.yml overrides."""
     over = dict(overrides or {})
     unknown = sorted(set(over) - set(OVERRIDABLE))
@@ -88,7 +88,7 @@ def build(name, overrides=None):
     return provider
 
 
-def resolve(review_cfg, env=None):
+def resolve(review_cfg: dict, env: dict | None = None) -> Provider:
     """The active provider: prsentinel.yml, with the environment layered on top.
 
     The environment wins so CI can retarget a committed config without editing it.
@@ -106,13 +106,14 @@ def resolve(review_cfg, env=None):
     return provider
 
 
-def token(provider, env=None):
+def token(provider: Provider, env: dict | None = None) -> str:
     """The API key for this provider, or "" when none is configured."""
     env = os.environ if env is None else env
     return env.get("ANTHROPIC_AUTH_TOKEN") or env.get(provider.token_env, "")
 
 
-def has_auth(provider, env=None, cli_config=None):
+def has_auth(provider: Provider, env: dict | None = None,
+             cli_config: Path | None = None) -> bool:
     """True when the SDK can authenticate against this provider.
 
     A logged-in Claude Code CLI only proves anything about Anthropic's own
@@ -127,7 +128,7 @@ def has_auth(provider, env=None, cli_config=None):
     return False
 
 
-def auth_hint(provider):
+def auth_hint(provider: Provider) -> str:
     """What the operator has to set, phrased for the provider they picked."""
     if provider.name == "anthropic" and not provider.base_url:
         return AUTH_HINT
@@ -135,7 +136,7 @@ def auth_hint(provider):
             f"(or ANTHROPIC_AUTH_TOKEN) in .env")
 
 
-def agent_env(provider, env=None):
+def agent_env(provider: Provider, env: dict | None = None) -> dict:
     """Environment for the CLI subprocess the SDK spawns.
 
     Both token variables are set: DeepSeek's docs read ANTHROPIC_API_KEY, Z.ai's
@@ -153,7 +154,7 @@ def agent_env(provider, env=None):
     return out
 
 
-def validate(cfg):
+def validate(cfg: dict) -> None:
     """Raise ValueError when prsentinel.yml's provider block is unusable."""
     entries = cfg.get("providers") or {}
     if not isinstance(entries, dict):
@@ -169,12 +170,12 @@ def validate(cfg):
     build(str(name), entries.get(name))
 
 
-def names(cfg):
+def names(cfg: dict) -> list[str]:
     """Every provider the operator may switch to, in a stable order."""
     return sorted(set(BUILTIN) | set(cfg.get("providers") or {}))
 
 
-def describe(provider, env=None):
+def describe(provider: Provider, env: dict | None = None) -> dict:
     """Provider status for the dashboard. Never includes the token itself."""
     return {
         "name": provider.name,
