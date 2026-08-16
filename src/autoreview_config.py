@@ -28,6 +28,8 @@ DEFAULTS = {
     "auto_describe": False,     # rewrite an empty PR body
     "docs_fix_pr": False,       # open a follow-up PR with doc fixes
     "inline_suggestions": True,  # suggestion blocks on docs inside the diff
+    # Jira. Credentials live in the environment, never here.
+    "jira": {"projects": [], "comment_result": False},
     "gate": dict(DEFAULT_GATE),
 }
 
@@ -42,6 +44,7 @@ def load_config(path: Path) -> dict:
     cfg["repos"] = _normalize_repos(cfg.get("repos") or {})
     cfg["gate"] = {**DEFAULT_GATE, **(raw.get("gate") or {})}
     cfg["providers"] = dict(raw.get("providers") or {})
+    cfg["jira"] = {**DEFAULTS["jira"], **(raw.get("jira") or {})}
     validate_config(cfg)
     return cfg
 
@@ -65,6 +68,12 @@ def validate_config(cfg: dict) -> None:
     minimum = cfg.get("gate", {}).get("verification_score_min")
     if not isinstance(minimum, (int, float)) or not 0 <= minimum <= 1:
         raise ValueError("gate.verification_score_min must be between 0 and 1")
+    jira_cfg = cfg.get("jira", {})
+    projects = jira_cfg.get("projects")
+    if not isinstance(projects, list) or not all(isinstance(p, str) for p in projects):
+        raise ValueError("jira.projects must be a list of project keys, e.g. [ABC, PRJ]")
+    if not isinstance(jira_cfg.get("comment_result"), bool):
+        raise ValueError("jira.comment_result must be true or false")
     providers.validate(cfg)
 
 

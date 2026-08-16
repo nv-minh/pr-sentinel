@@ -64,6 +64,8 @@ def test_main_rejects_bad_arguments():
 def _patch_pipeline(monkeypatch, tmp_path, verify_calls, setup_calls):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
     monkeypatch.setenv("PRS_SESSION_ROOT", str(tmp_path / "sessions"))
+    for name in ("JIRA_BASE_URL", "JIRA_EMAIL", "JIRA_API_TOKEN"):
+        monkeypatch.delenv(name, raising=False)
     monkeypatch.setattr("run.gh_available", lambda: True)
 
     def fake_build_snapshot(owner, repo, n, session_dir, gh=None):
@@ -79,7 +81,8 @@ def _patch_pipeline(monkeypatch, tmp_path, verify_calls, setup_calls):
     def fake_setup_workspace(owner, repo, n, workspace, remote_url=None):
         setup_calls.append(1)
 
-    def fake_run_verify(cfg, workspace, session_dir, snapshot, claims, runner=None):
+    def fake_run_verify(cfg, workspace, session_dir, snapshot, claims, ticket=None,
+                        runner=None):
         # the real run_verify persists findings.json — the resume logic depends on it
         verify_calls.append(1)
         session_dir.mkdir(parents=True, exist_ok=True)
@@ -249,3 +252,47 @@ def test_phases_forward_the_provider_to_the_runner(tmp_path):
     except Exception:
         pass
     assert seen["provider"].name == "glm"
+
+
+def test_a_review_records_why_it_had_no_requirement(tmp_path, monkeypatch):
+    _patch_pipeline(monkeypatch, tmp_path, [], [])
+    assert main(["demo/app", "7", "--no-post", "--skip-human"]) == 0
+    ticket = json.loads(
+        (tmp_path / "sessions/demo/app/pr-7/ticket.json").read_text())
+    assert ticket == {"primary": "", "tickets": [],
+                      "skipped": "Jira is not configured (JIRA_BASE_URL, "
+                                 "JIRA_EMAIL, JIRA_API_TOKEN)"}
+
+
+def test_the_ticket_reaches_verify(tmp_path, monkeypatch):
+    seen = {}
+    _patch_pipeline(monkeypatch, tmp_path, [], [])
+    fetched = {"primary": "ABC-1", "tickets": [{"key": "ABC-1"}], "skipped": ""}
+
+    def fake_fetch(snapshot, session_dir, jira_cfg, **kw):
+        seen["projects"] = jira_cfg.get("projects")
+        session_dir.mkdir(parents=True, exist_ok=True)
+        (session_dir / "ticket.json").write_text(json.dumps(fetched))
+        return fetched
+
+    def capturing_verify(cfg, workspace, session_dir, snapshot, claims,
+                         ticket=None, runner=None):
+        seen["ticket"] = ticket
+        session_dir.mkdir(parents=True, exist_ok=True)
+        (session_dir / "findings.json").write_text(json.dumps(FINDINGS))
+        return dict(FINDINGS)
+
+    monkeypatch.setattr("tickets.fetch_tickets", fake_fetch)
+    monkeypatch.setattr("verify.run_verify", capturing_verify)
+    assert main(["demo/app", "7", "--no-post", "--skip-human"]) == 0
+    assert seen["ticket"] == fetched
+    assert seen["projects"] == []
+
+
+def test_the_ticket_comment_is_skipped_when_not_enabled(tmp_path, monkeypatch):
+    posted = []
+    _patch_pipeline(monkeypatch, tmp_path, [], [])
+    monkeypatch.setattr("jira_report.post_result",
+                        lambda *a, **kw: posted.append(a) or True)
+    assert main(["demo/app", "7", "--no-post", "--skip-human"]) == 0
+    assert posted == []

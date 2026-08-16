@@ -185,11 +185,17 @@ def main(argv: list[str] | None = None) -> int:
             from claims import extract_claims
             from describe import comment_section, draft_description, needs_description
             from snapshot import build_snapshot
+            from tickets import fetch_tickets
             from verify import run_verify, setup_workspace
 
             snapshot = _load_or_skip("snapshot.json", session_dir, args.force)
             if snapshot is None:
                 snapshot = build_snapshot(owner, repo, int(num), session_dir)
+
+            ticket = _load_or_skip("ticket.json", session_dir, args.force)
+            if ticket is None:
+                ticket = fetch_tickets(snapshot, session_dir,
+                                       review_cfg.get("jira") or {})
 
             if needs_description(snapshot):
                 draft = _load_or_skip("description.json", session_dir, args.force)
@@ -211,7 +217,8 @@ def main(argv: list[str] | None = None) -> int:
             workspace = session_dir / "workspace"
             if findings is None:
                 setup_workspace(owner, repo, int(num), workspace)
-                findings = run_verify(cfg, workspace, session_dir, snapshot, claims)
+                findings = run_verify(cfg, workspace, session_dir, snapshot, claims,
+                                      ticket=ticket)
                 _bump_rounds(session_dir)
             elif args.reply:
                 import threads
@@ -232,7 +239,8 @@ def main(argv: list[str] | None = None) -> int:
                 except RuntimeError as e:
                     print(f"[run] follow-up could not resume ({e}) — full re-review",
                           file=sys.stderr)
-                    findings = run_verify(cfg, workspace, session_dir, snapshot, claims)
+                    findings = run_verify(cfg, workspace, session_dir, snapshot, claims,
+                                          ticket=ticket)
                 # Only what this run answered: a reply that landed while the
                 # follow-up was running stays unseen, so the next run takes it.
                 threads.save_replies(session_dir, fresh)
@@ -280,6 +288,16 @@ def main(argv: list[str] | None = None) -> int:
         if env.slack_webhook and args.fixtures is None:
             notify(env.slack_webhook,
                    build_payload(snapshot, findings, scores, _overall_verdict(findings)))
+
+        jira_cfg = review_cfg.get("jira") or {}
+        if post and jira_cfg.get("comment_result") and args.fixtures is None:
+            import jira_client
+            import jira_report
+            key = (ticket or {}).get("primary", "")
+            if key and jira_report.post_result(
+                    jira_client.load_config(), key,
+                    jira_report.build_body(snapshot, findings, scores)):
+                print(f"Posted the verdict to {key}.")
 
         if args.ci and scores["gate"] == "fail":
             print("Gate failed — blocking merge.", file=sys.stderr)

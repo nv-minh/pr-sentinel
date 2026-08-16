@@ -189,3 +189,31 @@ def test_set_provider_rejects_an_unknown_name(tmp_path):
     path = _write(tmp_path / "prsentinel.yml", "repos:\n  app: auto\n")
     with pytest.raises(ValueError, match="not built in"):
         set_provider(path, "nope")
+
+
+def test_jira_defaults_are_off_and_empty(tmp_path):
+    path = tmp_path / "c.yml"
+    path.write_text("org: acme\n")
+    cfg = load_config(path)
+    assert cfg["jira"] == {"projects": [], "comment_result": False}
+
+
+def test_jira_block_is_merged_over_the_defaults(tmp_path):
+    path = tmp_path / "c.yml"
+    path.write_text("jira:\n  projects: [ABC]\n  comment_result: true\n")
+    cfg = load_config(path)
+    assert cfg["jira"] == {"projects": ["ABC"], "comment_result": True}
+
+
+def test_jira_projects_must_be_a_list_of_strings(tmp_path):
+    path = tmp_path / "c.yml"
+    path.write_text("jira:\n  projects: ABC\n")
+    with pytest.raises(ValueError, match="jira.projects"):
+        load_config(path)
+
+
+def test_jira_comment_result_must_be_a_bool(tmp_path):
+    path = tmp_path / "c.yml"
+    path.write_text("jira:\n  comment_result: yes-please\n")
+    with pytest.raises(ValueError, match="jira.comment_result"):
+        load_config(path)

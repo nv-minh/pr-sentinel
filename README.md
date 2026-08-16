@@ -118,6 +118,37 @@ The poller reviews new PRs, re-reviews when the head commit changes, and — whe
 a PR was touched after its review was posted — runs the cheap reply pass.
 `scripts/poll-once.sh` is a launchd-friendly wrapper that sources `.env`.
 
+## Review against the Jira ticket
+
+With Jira configured, the review judges `impact` against the requirement the
+ticket states rather than the description the PR author wrote — and can post the
+merge decision back to the ticket.
+
+```bash
+export JIRA_BASE_URL=https://acme.atlassian.net
+export JIRA_EMAIL=bot@acme.io
+export JIRA_API_TOKEN=...
+```
+
+```yaml
+jira:
+  projects: [ABC, PRJ]      # allowlist for bare keys
+  comment_result: true      # off by default
+```
+
+The ticket key is taken from a `/browse/` link in the PR body, a `ABC-123:`
+title prefix, or the branch name, in that order; the first that resolves is the
+primary requirement and at most three tickets are read. A bare key counts only
+when its project is in `projects` — otherwise `UTF-8` and `CVE-2024-1234` parse
+as tickets. Ticket text enters the prompt inside an untrusted block, so an
+instruction written into a ticket description is reported rather than obeyed.
+
+Jira never fails a review: an unconfigured, missing or unreachable ticket
+degrades the review to the PR description and records why in the report. The
+verdict comment is written by a deterministic module after scoring, never by the
+agent, and it updates in place rather than accumulating one comment per push.
+This workstream never changes a ticket's status, fields or description.
+
 ## Dashboard
 
 ```bash
@@ -185,6 +216,9 @@ dashboard shows whether a key is present, never the key.
 | `PRS_CLAIMS_MODEL` | provider's | Model for claims + description drafting |
 | `PRS_SESSION_ROOT` | `sessions` | Where per-phase results are written |
 | `SLACK_WEBHOOK_URL` | — | Optional one-way notification |
+| `JIRA_BASE_URL` | — | Jira Cloud site, e.g. `https://acme.atlassian.net` |
+| `JIRA_EMAIL` | — | Account the API token belongs to |
+| `JIRA_API_TOKEN` | — | Jira API token (never stored in `prsentinel.yml`) |
 
 `prsentinel.yml` holds the rest. Three settings write outside the review comment
 and are **off by default**: `auto_describe` (rewrites the PR body),
