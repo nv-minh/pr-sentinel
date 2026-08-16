@@ -1,0 +1,229 @@
+"""Phase 3: clone the PR head into a disposable workspace and deep-dive it.
+
+The agent only reads: it reports everything through the JSON schema below, and
+this module writes findings.json itself. Nothing depends on the agent
+remembering to call a write tool.
+"""
+import json
+import subprocess
+from pathlib import Path
+
+from agent import BASH_TOOLS, READ_ONLY_TOOLS, record_usage
+from agent import run_structured as _default_runner
+
+CLAIM_STATUS = ["PASS", "FAIL", "PARTIAL", "UNVERIFIED"]
+DOC_STATUS = ["MATCH", "STALE", "WRONG", "FABRICATED"]
+IMPACT_STATUS = ["CHANGED", "BROKEN", "UNAFFECTED", "RISK"]
+CALLER_RISK = ["SAFE", "NEEDS_UPDATE", "BROKEN"]
+CONTRACT_KIND = ["API", "SCHEMA", "TYPE", "PROTO"]
+CONTRACT_STATUS = ["COMPATIBLE", "BREAKING_API_CHANGE", "SCHEMA_MIGRATION_RISK"]
+ASSERTION_QUALITY = ["STRONG", "WEAK", "MISSING"]
+THREAD_STATUS = ["RESOLVED", "STILL_VALID", "FIXED", "OUTDATED"]
+AREAS = ["payment", "auth", "data", "infra", "other"]
+
+
+def _array(item_props: dict, required: list[str]) -> dict:
+    return {"type": "array",
+            "items": {"type": "object", "properties": item_props,
+                      "required": required}}
+
+
+def _strings() -> dict:
+    return {"type": "array", "items": {"type": "string"}}
+
+
+FINDINGS_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "claims": _array({
+            "id": {"type": "string"},
+            "status": {"type": "string", "enum": CLAIM_STATUS},
+            "evidence": {**_strings(), "description": "file:line references proving the verdict"},
+            "note": {"type": "string"},
+            "confidence": {"type": "number", "description": "0.0-1.0"},
+        }, ["id", "status", "evidence", "note", "confidence"]),
+        "docs": _array({
+            "path": {"type": "string"},
+            "status": {"type": "string", "enum": DOC_STATUS},
+            "what": {"type": "string", "description": "the concrete difference vs the code"},
+        }, ["path", "status", "what"]),
+        "impact": _array({
+            "requirement": {"type": "string"},
+            "impact": {"type": "string", "enum": IMPACT_STATUS},
+            "area": {"type": "string", "enum": AREAS},
+            "paths": {**_strings(), "description": "repo paths this requirement lives in"},
+            "detail": {"type": "string"},
+        }, ["requirement", "impact", "area", "paths", "detail"]),
+        "callers_outside_diff": _array({
+            "symbol": {"type": "string", "description": "function/class/endpoint that changed"},
+            "defined_at": {"type": "string", "description": "file:line"},
+            "callers": {**_strings(), "description": "file:line of callers NOT in this PR"},
+            "risk": {"type": "string", "enum": CALLER_RISK},
+            "note": {"type": "string"},
+        }, ["symbol", "defined_at", "callers", "risk", "note"]),
+        "contracts": _array({
+            "kind": {"type": "string", "enum": CONTRACT_KIND},
+            "path": {"type": "string"},
+            "status": {"type": "string", "enum": CONTRACT_STATUS},
+            "detail": {"type": "string"},
+        }, ["kind", "path", "status", "detail"]),
+        "tests": _array({
+            "target": {"type": "string", "description": "file:function the test covers"},
+            "assertion_quality": {"type": "string", "enum": ASSERTION_QUALITY},
+            "uncovered_edge_cases": _array({
+                "case": {"type": "string"},
+                "where": {"type": "string", "description": "file:function to add it to"},
+            }, ["case", "where"]),
+            "note": {"type": "string"},
+        }, ["target", "assertion_quality", "uncovered_edge_cases", "note"]),
+        "threads": _array({
+            "text": {"type": "string"},
+            "status": {"type": "string", "enum": THREAD_STATUS},
+            "note": {"type": "string"},
+        }, ["text", "status", "note"]),
+        "unresolved_questions": {
+            **_strings(),
+            "description": "questions for the human, each at most 20 words",
+        },
+    },
+    "required": ["claims", "docs", "impact", "callers_outside_diff", "contracts",
+                 "tests", "threads", "unresolved_questions"],
+}
+
+SYSTEM_PROMPT = (
+    "You are a meticulous code reviewer working inside a checkout of a pull "
+    "request. You read the real code before judging anything. You never guess: "
+    "a conclusion you cannot back with a file:line reference is UNVERIFIED, and "
+    "becomes a question for the human instead."
+)
+
+
+def _run_git(args: list[str], cwd: Path) -> None:
+    proc = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise RuntimeError(f"git {' '.join(args)} failed: {proc.stderr.strip()}")
+
+
+def setup_workspace(owner: str, repo: str, n: int, workspace: Path,
+                    remote_url: str | None = None) -> None:
+    """Clone the repo (first time) and check out the PR head branch.
+
+    The path must resolve to an absolute one: a relative target plus subprocess
+    cwd would nest the clone in the wrong place.
+    """
+    workspace = workspace.resolve()
+    if not workspace.exists():
+        url = remote_url or f"https://github.com/{owner}/{repo}.git"
+        _run_git(["clone", "--no-checkout", url, str(workspace)], workspace.parent)
+    branch = f"pr-{n}"
+    # Fetch into FETCH_HEAD (a refspec ending in :branch is refused when that
+    # branch is checked out, which happens on every re-review); checkout -B
+    # then force-resets the branch.
+    _run_git(["fetch", "origin", f"pull/{n}/head"], workspace)
+    _run_git(["checkout", "-B", branch, "FETCH_HEAD"], workspace)
+
+
+def build_verify_prompt(snapshot: dict, claims: list[dict]) -> str:
+    """Instruct the agent to verify the PR from inside the workspace."""
+    files = [f"- {f['filename']} (+{f.get('additions', 0)}/-{f.get('deletions', 0)})"
+             for f in snapshot["files"]]
+    threads = [f"- (resolved={t['resolved']}) {t.get('author')}: {t.get('body', '')[:200]}"
+               for t in snapshot.get("threads", [])]
+    pruned = [f"- {p['filename']} ({p['reason']})" for p in snapshot.get("pruned", [])]
+    return f"""
+You are in a checkout of PR #{snapshot['pr']} of {snapshot['owner']}/{snapshot['repo']}.
+
+PR title: {snapshot['title']}
+PR body: {snapshot['body'] or '(empty)'}
+Base: {snapshot['base']} → Head: {snapshot['head']}
+
+Files changed:
+{chr(10).join(files) if files else '- (none)'}
+
+Excluded from this summary (generated/oversized — read them from disk if a
+verdict depends on them):
+{chr(10).join(pruned) if pruned else '- (none)'}
+
+Review threads:
+{chr(10).join(threads) if threads else '- (none)'}
+
+Claims to verify — read the actual code, do not trust the description:
+{json.dumps(claims, indent=2)}
+
+Produce, in the required schema:
+
+1. claims — PASS (the code does what is described) / FAIL (the description is
+   wrong) / PARTIAL / UNVERIFIED. Every non-UNVERIFIED verdict needs at least
+   one `file:line` in evidence. Set confidence 0.0-1.0.
+2. docs — for every documentation file related to the changed code, compare the
+   doc against the real code: MATCH / STALE (outdated) / WRONG (contradicts the
+   code) / FABRICATED (describes something that does not exist). Say concretely
+   what differs.
+3. impact — which requirement or business behaviour this change touches:
+   CHANGED / BROKEN / UNAFFECTED / RISK, with the repo paths involved and the
+   area it belongs to.
+4. callers_outside_diff — for each function, class, endpoint or exported symbol
+   whose behaviour or signature changed, search the whole repository for callers
+   that this PR does NOT touch. Report them with file:line and whether they still
+   work (SAFE), need updating (NEEDS_UPDATE) or are now broken (BROKEN). This is
+   the most valuable part of the review: a five-line diff can break ten files.
+5. contracts — inspect API specs, database migrations, protobuf definitions and
+   exported types touched by this PR. Flag BREAKING_API_CHANGE (removed or
+   renamed field/endpoint/parameter, narrowed type, new required field) and
+   SCHEMA_MIGRATION_RISK (destructive or non-reversible migration, missing
+   default, index built on a large table without CONCURRENTLY).
+6. tests — judge whether the tests in this PR actually assert the new branch
+   logic, or only execute it for coverage. assertion_quality: STRONG (asserts
+   the new behaviour and its failure modes), WEAK (executes the code but asserts
+   little), MISSING (new logic with no test). List 2-3 concrete uncovered edge
+   cases and the file:function each belongs in.
+7. threads — do the unresolved review comments still hold against the current code?
+8. unresolved_questions — anything you could not verify, phrased as a question of
+   at most 20 words, in English.
+
+Do not guess. Anything unproven is UNVERIFIED plus a question.
+""".strip()
+
+
+def validate_findings(data: dict) -> dict:
+    """Defence in depth: the schema is enforced by the SDK, this catches the rest."""
+    if not isinstance(data, dict):
+        raise RuntimeError("invalid findings: must be a JSON object")
+    for key in FINDINGS_SCHEMA["required"]:
+        if not isinstance(data.get(key), list):
+            raise RuntimeError(f"invalid findings: missing key {key} (must be a list)")
+    for c in data["claims"]:
+        if not c.get("id") or c.get("status") not in CLAIM_STATUS:
+            raise RuntimeError(f"invalid findings: claim has invalid schema: {c}")
+    for d in data["docs"]:
+        if d.get("status") not in DOC_STATUS:
+            raise RuntimeError(f"invalid findings: doc has invalid schema: {d}")
+    for c in data["contracts"]:
+        if c.get("status") not in CONTRACT_STATUS:
+            raise RuntimeError(f"invalid findings: contract has invalid schema: {c}")
+    return data
+
+
+def run_verify(cfg: dict, workspace: Path, session_dir: Path, snapshot: dict,
+               claims: list[dict], runner=_default_runner) -> dict:
+    """Run the deep-dive agent and persist findings.json. Returns the findings."""
+    session_dir.mkdir(parents=True, exist_ok=True)
+    tools = BASH_TOOLS if cfg.get("allow_bash") else READ_ONLY_TOOLS
+    result = runner(
+        build_verify_prompt(snapshot, claims),
+        schema=FINDINGS_SCHEMA,
+        cwd=workspace,
+        tools=tools,
+        model=cfg.get("model"),
+        system_prompt=SYSTEM_PROMPT,
+        max_turns=cfg.get("max_turns", 60),
+        max_budget_usd=cfg.get("max_budget_usd"),
+    )
+    findings = validate_findings(result.data)
+
+    (session_dir / "findings.json").write_text(json.dumps(findings, indent=2))
+    (session_dir / "verify-meta.json").write_text(json.dumps(
+        {"session_id": result.session_id, "head_sha": snapshot.get("head_sha", "")},
+        indent=2))
+    record_usage(session_dir, "verify", result)
+    return findings

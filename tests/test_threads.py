@@ -1,0 +1,98 @@
+import json
+
+import pytest
+
+from agent import AgentResult
+from synthesize import MARKER
+from threads import (build_followup_prompt, fetch_replies, previous_session,
+                     run_followup, save_replies, unseen)
+
+BOT_COMMENT = {"id": 1, "body": f"review {MARKER}", "user": {"login": "sentinel-bot"},
+               "created_at": "2026-01-01T10:00:00Z", "updated_at": "2026-01-01T10:00:00Z"}
+AUTHOR_REPLY = {"id": 2, "body": "Refactored, see the new commit",
+                "user": {"login": "dev1"}, "created_at": "2026-01-01T11:00:00Z"}
+OLD_COMMENT = {"id": 0, "body": "please review", "user": {"login": "dev1"},
+               "created_at": "2026-01-01T09:00:00Z"}
+INLINE_REPLY = {"id": 3, "body": "fixed here", "user": {"login": "dev1"},
+                "created_at": "2026-01-01T11:30:00Z", "path": "src/a.py"}
+
+FINDINGS = {"claims": [{"id": "C1", "status": "PASS", "evidence": ["a.py:1"],
+                        "note": "", "confidence": 1.0}],
+            "docs": [], "impact": [], "callers_outside_diff": [], "contracts": [],
+            "tests": [], "threads": [], "unresolved_questions": []}
+
+
+def _gh(issue_comments, review_comments=()):
+    def fake(args, **kw):
+        return list(review_comments) if "pulls" in args[1] else list(issue_comments)
+    return fake
+
+
+def test_fetch_replies_returns_comments_after_the_bot():
+    replies = fetch_replies("o", "r", 7,
+                            gh=_gh([OLD_COMMENT, BOT_COMMENT, AUTHOR_REPLY], [INLINE_REPLY]))
+    assert [r["id"] for r in replies] == [2, 3]
+    assert replies[1]["source"] == "review"
+    assert replies[1]["path"] == "src/a.py"
+
+
+def test_fetch_replies_ignores_the_bots_own_comments():
+    bot_followup = {"id": 9, "body": "still here", "user": {"login": "sentinel-bot"},
+                    "created_at": "2026-01-01T12:00:00Z"}
+    replies = fetch_replies("o", "r", 7, gh=_gh([BOT_COMMENT, bot_followup]))
+    assert replies == []
+
+
+def test_fetch_replies_without_a_review_yet():
+    assert fetch_replies("o", "r", 7, gh=_gh([OLD_COMMENT])) == []
+
+
+def test_unseen_filters_already_answered_replies(tmp_path):
+    save_replies(tmp_path, [{"id": 2}])
+    assert [r["id"] for r in unseen(tmp_path, [{"id": 2}, {"id": 3}])] == [3]
+
+
+def test_unseen_on_a_fresh_session(tmp_path):
+    assert len(unseen(tmp_path, [{"id": 2}])) == 1
+
+
+def test_previous_session_reads_verify_meta(tmp_path):
+    (tmp_path / "verify-meta.json").write_text(json.dumps({"session_id": "sess-9"}))
+    assert previous_session(tmp_path) == "sess-9"
+    assert previous_session(tmp_path / "nope") == ""
+
+
+def test_build_followup_prompt_quotes_replies_and_commits():
+    prompt = build_followup_prompt(
+        [{"source": "review", "author": "dev1", "path": "src/a.py", "body": "fixed"}],
+        [{"sha": "abcdef1234", "message": "fix: handle null\n\nbody"}])
+    assert "dev1" in prompt and "src/a.py" in prompt and "fixed" in prompt
+    assert "abcdef12 fix: handle null" in prompt
+    assert "COMPLETE findings object" in prompt
+
+
+def test_run_followup_resumes_the_previous_session(tmp_path):
+    (tmp_path / "verify-meta.json").write_text(json.dumps({"session_id": "sess-9"}))
+    captured = {}
+
+    def runner(prompt, **kw):
+        captured.update(kw)
+        return AgentResult(data=dict(FINDINGS), session_id="sess-10", cost_usd=0.05,
+                           num_turns=3, duration_ms=10)
+
+    findings = run_followup({"model": "m"}, tmp_path / "ws", tmp_path,
+                            {"head_sha": "sha2"}, [{"source": "conversation",
+                                                    "author": "dev1", "body": "ok",
+                                                    "path": None}],
+                            [], runner=runner)
+
+    assert captured["resume"] == "sess-9"
+    assert findings["claims"][0]["id"] == "C1"
+    assert json.loads((tmp_path / "verify-meta.json").read_text())["session_id"] == "sess-10"
+    assert json.loads((tmp_path / "usage.json").read_text())[0]["phase"] == "followup"
+
+
+def test_run_followup_without_a_session_to_resume(tmp_path):
+    with pytest.raises(RuntimeError, match="no previous verify session"):
+        run_followup({}, tmp_path / "ws", tmp_path, {}, [], [],
+                     runner=lambda *a, **kw: None)

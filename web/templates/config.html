@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Repo configuration</h1>
+
+{% if cfg.error %}
+<p class="empty">Invalid config: {{ cfg.error }}</p>
+{% else %}
+<p class="muted">Config: {{ cfg.config_path }} · org: {{ cfg.org or "—" }}
+  · interval: {{ cfg.interval }}m · drafts: {{ cfg.drafts }}
+  · post comment: {{ cfg.post_comment }}</p>
+<table class="table">
+  <thead><tr><th>Repo</th><th>Mode</th><th>Actions</th></tr></thead>
+  <tbody>
+  {% for r in cfg.repos %}
+    <tr class="{{ 'unlisted' if r.mode == 'unlisted' }}">
+      <td>{{ r.name }}</td>
+      <td><span class="verdict v-{{ r.mode }}">{{ r.mode }}</span></td>
+      <td>
+        {% if r.mode == 'unlisted' %}
+          <button class="tab-btn" onclick="setMode('{{ r.name }}','auto')">Enable auto</button>
+        {% else %}
+          <button class="tab-btn" onclick="setMode('{{ r.name }}','{{ 'manual' if r.mode == 'auto' else 'auto' }}')">Switch to {{ 'manual' if r.mode == 'auto' else 'auto' }}</button>
+          <button class="tab-btn danger" onclick="removeRepo('{{ r.name }}')">Remove</button>
+        {% endif %}
+      </td>
+    </tr>
+  {% else %}
+    <tr><td colspan="3" class="empty">No repos configured</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+<form class="add-form" onsubmit="addRepo(event)">
+  <input class="add-input" id="new-repo" placeholder="owner/repo or repo name">
+  <button class="tab-btn" type="submit">Add repo</button>
+  <button class="tab-btn" type="button" onclick="location.reload()">Refresh</button>
+</form>
+{% endif %}
+
+<script>
+async function postJson(url, body) {
+  const r = await fetch(url, {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify(body)
+  });
+  if (!r.ok) { alert((await r.json()).detail || "error"); return; }
+  location.reload();
+}
+function setMode(repo, mode) { postJson(`/api/config/repos/${encodeURIComponent(repo)}/mode`, {mode}); }
+function removeRepo(repo) {
+  fetch(`/api/config/repos/${encodeURIComponent(repo)}`, {method: "DELETE"})
+    .then(r => r.ok ? location.reload() : alert("error"));
+}
+function addRepo(e) {
+  e.preventDefault();
+  postJson("/api/config/repos", {repo: document.getElementById("new-repo").value.trim()});
+}
+</script>
+{% endblock %}

@@ -1,0 +1,128 @@
+"""The single integration point with the Claude Agent SDK.
+
+Every LLM call in this project goes through `run_structured()`, which forces a
+JSON-schema answer (`output_format`) and returns it as a plain dict. Callers
+never touch the SDK, so tests inject a fake runner instead of mocking the SDK.
+
+Safety defaults, applied to every call:
+- `permission_mode="dontAsk"` — a tool that is not pre-approved is denied
+  outright rather than prompting an operator that does not exist.
+- `setting_sources=[]` — ignore the host machine's CLAUDE.md / settings /
+  skills, so a review only ever sees the repo under review.
+- tools default to read-only; the agent reports findings through the schema,
+  it never edits the workspace.
+"""
+import asyncio
+import json
+from dataclasses import dataclass
+from pathlib import Path
+
+# Read-only inspection tools: enough to verify claims, trace callers and read docs.
+READ_ONLY_TOOLS = ["Read", "Grep", "Glob"]
+# Bash is opt-in (`allow_bash` in prsentinel.yml) for `git log`/`git grep` tracing.
+BASH_TOOLS = READ_ONLY_TOOLS + ["Bash"]
+# Never available, whatever the caller asks for: no writes, no network.
+BLOCKED_TOOLS = ["Write", "Edit", "NotebookEdit", "WebFetch", "WebSearch"]
+
+
+@dataclass
+class AgentResult:
+    """What one agent run produced, plus what it cost."""
+    data: dict
+    session_id: str = ""
+    cost_usd: float | None = None
+    num_turns: int = 0
+    duration_ms: int = 0
+    model: str = ""
+
+    def usage_entry(self, phase: str) -> dict:
+        return {"phase": phase, "session_id": self.session_id,
+                "cost_usd": self.cost_usd, "num_turns": self.num_turns,
+                "duration_ms": self.duration_ms, "model": self.model}
+
+
+async def _query(prompt: str, options) -> AgentResult:
+    from claude_agent_sdk import ResultMessage, query
+
+    result = None
+    async for message in query(prompt=prompt, options=options):
+        if isinstance(message, ResultMessage):
+            result = message
+    if result is None:
+        raise RuntimeError("agent returned no result message")
+    if result.subtype != "success":
+        raise RuntimeError(f"agent stopped: {result.subtype}")
+    if result.structured_output is None:
+        raise RuntimeError("agent returned no structured output")
+    return AgentResult(
+        data=result.structured_output,
+        session_id=result.session_id,
+        cost_usd=result.total_cost_usd,
+        num_turns=result.num_turns,
+        duration_ms=result.duration_ms,
+    )
+
+
+def run_structured(prompt: str, *, schema: dict, cwd: Path | str | None = None,
+                   tools: list[str] | None = None, model: str | None = None,
+                   max_turns: int | None = None,
+                   max_budget_usd: float | None = None,
+                   resume: str | None = None,
+                   system_prompt: str | None = None) -> AgentResult:
+    """Run one agent turn-loop and return its schema-validated JSON answer.
+
+    `tools=None` means no tools at all (a plain completion); pass
+    `READ_ONLY_TOOLS` for a code-reading agent. Every SDK failure is re-raised
+    as RuntimeError so callers can handle one exception type.
+    """
+    from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKError
+
+    allowed = list(tools or [])
+    options = ClaudeAgentOptions(
+        cwd=str(cwd) if cwd else None,
+        model=model,
+        tools=allowed,
+        allowed_tools=allowed,
+        disallowed_tools=BLOCKED_TOOLS,
+        permission_mode="dontAsk",
+        setting_sources=[],
+        max_turns=max_turns,
+        max_budget_usd=max_budget_usd,
+        resume=resume,
+        system_prompt=system_prompt,
+        output_format={"type": "json_schema", "schema": schema},
+    )
+    try:
+        result = asyncio.run(_query(prompt, options))
+    except ClaudeSDKError as e:
+        raise RuntimeError(f"Claude Agent SDK failed: {e}") from e
+    result.model = model or ""
+    return result
+
+
+def record_usage(session_dir: Path, phase: str, result: AgentResult) -> None:
+    """Append one phase's cost to usage.json. Never fails a review."""
+    path = session_dir / "usage.json"
+    try:
+        entries = json.loads(path.read_text()) if path.exists() else []
+        if not isinstance(entries, list):
+            entries = []
+    except (OSError, json.JSONDecodeError):
+        entries = []
+    entries = [e for e in entries if e.get("phase") != phase]
+    entries.append(result.usage_entry(phase))
+    try:
+        session_dir.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(entries, indent=2))
+    except OSError:
+        pass
+
+
+def total_cost(session_dir: Path) -> float:
+    """Sum of every recorded phase cost for a session (0.0 if unknown)."""
+    path = session_dir / "usage.json"
+    try:
+        entries = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError):
+        return 0.0
+    return sum(e.get("cost_usd") or 0.0 for e in entries if isinstance(e, dict))

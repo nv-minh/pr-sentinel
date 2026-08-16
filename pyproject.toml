@@ -1,0 +1,17 @@
+[project]
+name = "pr-sentinel"
+version = "0.1.0"
+description = "Headless PR review automation on top of the Claude Agent SDK"
+requires-python = ">=3.10"
+dependencies = [
+    "claude-agent-sdk>=0.2.139",
+    "pyyaml",
+]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+web = ["fastapi", "uvicorn", "jinja2", "httpx"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src", "."]
+testpaths = ["tests"]

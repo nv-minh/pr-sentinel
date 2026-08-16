@@ -1,0 +1,114 @@
+# tests/test_autoreview_config.py
+import pytest
+
+from autoreview_config import (auto_repos, list_repos, load_config,
+                               remove_repo, set_repo_mode)
+
+NEW_YML = """
+org: sample-org
+default_mode: manual
+interval_minutes: 2
+post_comment: true
+skip_human: true
+drafts: false
+repos:
+  sample-app: auto
+  sample-api: auto
+"""
+
+
+def _write(path, text):
+    path.write_text(text)
+    return path
+
+
+def test_load_config_new_format(tmp_path):
+    cfg = load_config(_write(tmp_path / "a.yml", NEW_YML))
+    assert cfg["org"] == "sample-org"
+    assert cfg["default_mode"] == "manual"
+    assert cfg["repos"] == {"sample-app": "auto", "sample-api": "auto"}
+    assert cfg["interval_minutes"] == 2
+
+
+def test_load_config_legacy_list(tmp_path):
+    cfg = load_config(_write(tmp_path / "a.yml",
+                             "repos:\n  - sample-org/sample-app\n"))
+    assert cfg["repos"] == {"sample-org/sample-app": "auto"}
+
+
+def test_load_config_empty_repos_allowed(tmp_path):
+    cfg = load_config(_write(tmp_path / "a.yml", "org: sample-org\n"))
+    assert cfg["repos"] == {}
+    assert cfg["default_mode"] == "manual"
+
+
+def test_load_config_invalid_mode(tmp_path):
+    with pytest.raises(ValueError, match="mode must be auto|manual"):
+        load_config(_write(tmp_path / "a.yml",
+                           "repos:\n  sample-app: sometimes\n"))
+
+
+def test_load_config_invalid_interval(tmp_path):
+    with pytest.raises(ValueError, match="interval_minutes"):
+        load_config(_write(tmp_path / "a.yml", "interval_minutes: -5\n"))
+
+
+def test_load_config_bad_yaml(tmp_path):
+    with pytest.raises(ValueError, match="invalid config YAML"):
+        load_config(_write(tmp_path / "a.yml", "repos: [unclosed\n"))
+
+
+def test_set_repo_mode_add_and_change(tmp_path):
+    p = _write(tmp_path / "a.yml", "org: sample-org\nrepos:\n  sample-app: manual\n")
+    set_repo_mode(p, "admin-web", "auto")          # add by name
+    cfg = load_config(p)
+    assert cfg["repos"]["admin-web"] == "auto"
+    set_repo_mode(p, "sample-app", "auto")          # change
+    assert load_config(p)["repos"]["sample-app"] == "auto"
+
+
+def test_set_repo_mode_invalid(tmp_path):
+    p = _write(tmp_path / "a.yml", "org: sample-org\n")
+    with pytest.raises(ValueError, match="mode must be auto|manual"):
+        set_repo_mode(p, "sample-app", "banana")
+
+
+def test_remove_repo(tmp_path):
+    p = _write(tmp_path / "a.yml", NEW_YML)
+    remove_repo(p, "sample-api")
+    cfg = load_config(p)
+    assert "sample-api" not in cfg["repos"]
+    assert "sample-app" in cfg["repos"]
+
+
+def test_auto_repos_resolves_org(tmp_path):
+    cfg = load_config(_write(tmp_path / "a.yml", NEW_YML))
+    assert auto_repos(cfg) == [("sample-org", "sample-app"),
+                               ("sample-org", "sample-api")]
+
+
+def test_auto_repos_full_path(tmp_path):
+    cfg = load_config(_write(
+        tmp_path / "a.yml",
+        "repos:\n  other/legacy: auto\n  sample-app: manual\n"))
+    assert auto_repos(cfg) == [("other", "legacy")]
+
+
+def test_list_repos_with_org_merge(tmp_path):
+    p = _write(tmp_path / "a.yml", NEW_YML)  # sample-app auto, sample-api auto
+
+    def fake_gh(args, **kw):
+        assert "orgs/sample-org/repos" in args[1]
+        return [{"name": "sample-app"}, {"name": "admin-web"}]
+
+    rows = list_repos(p, gh=fake_gh)
+    by_name = {r["name"]: r["mode"] for r in rows}
+    assert by_name["sample-app"] == "auto"
+    assert by_name["admin-web"] == "unlisted"
+    assert by_name["sample-api"] == "auto"   # configured but not in org list
+
+
+def test_list_repos_without_org(tmp_path):
+    p = _write(tmp_path / "a.yml", "repos:\n  sample-app: auto\n")
+    rows = list_repos(p, gh=lambda args, **kw: None)  # gh không được gọi
+    assert rows == [{"name": "sample-app", "mode": "auto"}]
