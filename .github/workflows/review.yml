@@ -24,8 +24,18 @@ jobs:
       github.event_name == 'pull_request' ||
       (github.event.issue.pull_request != null && github.actor != 'github-actions[bot]')
     runs-on: ubuntu-latest
+    env:
+      PR_NUMBER: ${{ github.event.pull_request.number || github.event.issue.number }}
     steps:
       - uses: actions/checkout@v6
+
+      - name: Restore review state
+        uses: actions/cache@v4
+        with:
+          path: sessions
+          key: pr-sentinel-sessions-${{ env.PR_NUMBER }}-${{ github.run_id }}
+          restore-keys: |
+            pr-sentinel-sessions-${{ env.PR_NUMBER }}-
 
       - uses: actions/setup-python@v6
         with:
@@ -39,7 +49,6 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-          PR_NUMBER: ${{ github.event.pull_request.number || github.event.issue.number }}
           # A comment event means someone answered the bot: resume the previous
           # session instead of paying for a full re-review.
           MODE: ${{ github.event_name == 'issue_comment' && '--reply' || '--force' }}

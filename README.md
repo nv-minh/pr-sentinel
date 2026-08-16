@@ -51,9 +51,10 @@ PYTHONPATH=src python -m src.run owner/repo 123 --reply      # answer new replie
 ```
 
 Results land in `sessions/<owner>/<repo>/pr-<n>/`: `findings.json`, `score.json`,
-`usage.json` (what the review cost), and `report.md`. Every phase is skipped when
-its result already exists, so a re-run resumes rather than paying twice;
-`--force` re-runs them.
+`usage.json` (what the review cost), `report.md`, and `transcripts/` — the agent
+conversation, kept so a later `--reply` resumes it instead of re-reviewing. Every
+phase is skipped when its result already exists, so a re-run resumes rather than
+paying twice; `--force` re-runs them.
 
 ## How it runs
 
@@ -85,6 +86,10 @@ env:
   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 run: python -m src.run "$GITHUB_REPOSITORY" "$PR_NUMBER" --ci --force
 ```
+
+The job caches `sessions/` between runs of the same PR, so a comment triggers a
+follow-up that resumes the previous conversation. Without that cache the runner
+starts empty and every comment pays for a full review.
 
 The gate is configured in `prsentinel.yml`:
 
