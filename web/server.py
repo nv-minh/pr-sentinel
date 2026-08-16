@@ -318,10 +318,13 @@ def trigger_review(owner: str, repo: str, pr: int, reply: bool = False):
     cfg_path = _require_config()
     try:
         cfg = load_autoreview_config(cfg_path)
+        # An unknown PRS_PROVIDER bypasses providers.validate() (it only runs
+        # at YAML-load time), so resolve() must stay inside this try or a
+        # one-character typo surfaces as a 500 instead of the usual 400.
+        provider = providers.resolve(cfg)
     except (ValueError, OSError) as e:
         raise HTTPException(status_code=400, detail=f"invalid config: {e}")
 
-    provider = providers.resolve(cfg)
     if not providers.has_auth(provider):
         raise HTTPException(status_code=400, detail=providers.auth_hint(provider))
 

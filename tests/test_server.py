@@ -419,6 +419,16 @@ def test_api_config_rejects_an_unknown_env_provider_as_400(tmp_path, monkeypatch
     assert "not built in" in r.json()["detail"]
 
 
+def test_trigger_review_rejects_an_unknown_env_provider_as_400(tmp_path, monkeypatch):
+    """Same scenario as the /api/config case above, on the review-trigger
+    endpoint: a typo'd PRS_PROVIDER must not turn into a 500 there either."""
+    monkeypatch.setenv("PRS_PROVIDER", "typo")
+    _config(tmp_path, monkeypatch)
+    r = TestClient(app).post("/api/repos/demo/app/pr/8/review")
+    assert r.status_code == 400
+    assert "not built in" in r.json()["detail"]
+
+
 def test_switch_provider_writes_the_yaml(tmp_path, monkeypatch):
     monkeypatch.delenv("PRS_PROVIDER", raising=False)
     cfg_path = _config(tmp_path, monkeypatch)
