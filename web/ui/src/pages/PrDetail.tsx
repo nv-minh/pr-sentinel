@@ -86,7 +86,7 @@ export function PrDetail({ owner, repo, pr }: { owner: string; repo: string; pr:
   return (
     <>
       <h1 className="page-title">
-        <span style={{ fontFamily: 'var(--mono)', color: 'var(--muted)', fontSize: '0.7em' }}>
+        <span style={{ fontFamily: 'var(--mono)', color: 'var(--ink-muted)', fontSize: '0.7em' }}>
           #{pr}
         </span>{' '}
         {data.title || rec?.title || '(no title)'}

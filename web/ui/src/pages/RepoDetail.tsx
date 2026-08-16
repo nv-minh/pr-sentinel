@@ -80,7 +80,7 @@ export function RepoDetail({ owner, repo }: { owner: string; repo: string }) {
                 status={rec?.gate ? rec.gate : row.status === 'reviewed' ? 'PASS' : 'UNVERIFIED'}
                 title={
                   <>
-                    <span style={{ fontFamily: 'var(--mono)', color: 'var(--muted)' }}>
+                    <span style={{ fontFamily: 'var(--mono)', color: 'var(--ink-muted)' }}>
                       #{row.pr}
                     </span>{' '}
                     {row.title || '(no title)'} {row.draft ? '· draft' : ''}

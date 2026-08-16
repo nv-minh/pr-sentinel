@@ -1,23 +1,9 @@
-import { useEffect, useState } from 'react'
 import { Config } from './pages/Config'
 import { PrDetail } from './pages/PrDetail'
 import { RepoDetail } from './pages/RepoDetail'
 import { Repos } from './pages/Repos'
 import { navigate, useRoute } from './router'
-
-const THEME_KEY = 'pr-sentinel-theme'
-
-function useTheme(): [string, () => void] {
-  const [theme, setTheme] = useState(
-    () => localStorage.getItem(THEME_KEY)
-      ?? (window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'),
-  )
-  useEffect(() => {
-    document.documentElement.dataset.theme = theme
-    localStorage.setItem(THEME_KEY, theme)
-  }, [theme])
-  return [theme, () => setTheme(theme === 'dark' ? 'light' : 'dark')]
-}
+import { useTheme } from './theme'
 
 function link(path: string) {
   return {
@@ -26,23 +12,35 @@ function link(path: string) {
   }
 }
 
+const NAV_LINK =
+  'font-mono text-[12px] uppercase tracking-[0.08em] text-ink-muted ' +
+  'hover:text-ink aria-[current=page]:text-ink'
+
 export function App() {
   const route = useRoute()
   const [theme, toggleTheme] = useTheme()
 
   return (
-    <div className="shell">
-      <header className="masthead">
-        <a className="wordmark" {...link('/')}>PR Sentinel</a>
-        <nav>
-          <a {...link('/')} aria-current={route.name === 'repos' ? 'page' : undefined}>
+    <div className="mx-auto max-w-[1120px] px-7 pb-24">
+      <header className="mb-8 flex flex-wrap items-baseline gap-5 border-b border-hairline-strong pt-[22px] pb-[18px]">
+        <a className="font-mono text-[13px] font-bold uppercase tracking-[0.14em] text-brand"
+           {...link('/')}>
+          PR Sentinel
+        </a>
+        <nav className="ml-auto flex items-center gap-[18px]">
+          <a {...link('/')} className={NAV_LINK}
+             aria-current={route.name === 'repos' ? 'page' : undefined}>
             Repos
           </a>
-          <a {...link('/config')} aria-current={route.name === 'config' ? 'page' : undefined}>
+          <a {...link('/config')} className={NAV_LINK}
+             aria-current={route.name === 'config' ? 'page' : undefined}>
             Config
           </a>
-          <button className="icon-button" onClick={toggleTheme}
-                  aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}>
+          <button
+            className="rounded border border-hairline-strong px-[9px] py-1 font-mono text-[12px] uppercase tracking-[0.08em] text-ink-muted hover:border-ink-muted hover:text-ink"
+            onClick={toggleTheme}
+            aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}
+          >
             {theme === 'dark' ? 'Light' : 'Dark'}
           </button>
         </nav>
