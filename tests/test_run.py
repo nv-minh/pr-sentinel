@@ -189,8 +189,23 @@ def test_reply_mode_falls_back_to_a_full_review(tmp_path, monkeypatch):
                                            "author": "dev1", "body": "hi", "path": None}])
     monkeypatch.setattr("threads.run_followup", cannot_resume)
 
+    tickets_seen = []
+
+    def capturing_verify(cfg, workspace, session_dir, snapshot, claims,
+                         ticket=None, runner=None):
+        tickets_seen.append(ticket)
+        verify_calls.append(1)
+        session_dir.mkdir(parents=True, exist_ok=True)
+        (session_dir / "findings.json").write_text(json.dumps(FINDINGS))
+        return dict(FINDINGS)
+
+    monkeypatch.setattr("verify.run_verify", capturing_verify)
+
     assert main(["demo/app", "7", "--no-post", "--skip-human", "--reply"]) == 0
     assert len(verify_calls) == 2          # fell back to the full pass
+    # The fallback must carry the requirement too, not silently drop it.
+    assert isinstance(tickets_seen[-1], dict)
+    assert "skipped" in tickets_seen[-1]
 
 
 def test_failed_phase_writes_failure_report(tmp_path, monkeypatch):

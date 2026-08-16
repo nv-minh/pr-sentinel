@@ -188,7 +188,8 @@ export function PrDetail({ owner, repo, pr }: { owner: string; repo: string; pr:
               ? data.impact.map((it, i) => (
                   <Row key={i} status={it.impact}
                        title={<>{it.requirement} <StatusWord status={it.impact} /></>}
-                       meta={it.detail} right={it.area} />
+                       meta={it.detail}
+                       right={[it.requirement_source, it.area].filter(Boolean).join(' · ')} />
                 ))
               : <Empty>No requirement was traced to this change.</Empty>)}
 

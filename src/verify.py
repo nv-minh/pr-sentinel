@@ -184,7 +184,7 @@ Excluded from this summary (generated/oversized — read them from disk if a
 verdict depends on them):
 {chr(10).join(pruned) if pruned else '- (none)'}
 
- Review threads:
+Review threads:
 {chr(10).join(threads) if threads else '- (none)'}
 
 {_requirement_section(ticket, found=found)}

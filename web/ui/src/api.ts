@@ -73,7 +73,13 @@ export interface PrDetail {
   body?: string
   claims?: Claim[]
   docs?: { path: string; status: string; what: string }[]
-  impact?: { requirement: string; impact: string; area?: string; detail: string }[]
+  impact?: {
+    requirement: string
+    impact: string
+    area?: string
+    detail: string
+    requirement_source?: string
+  }[]
   callers?: { symbol: string; defined_at: string; callers: string[]; risk: string; note: string }[]
   contracts?: { kind: string; path: string; status: string; detail: string }[]
   tests?: {
