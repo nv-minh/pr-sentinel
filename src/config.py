@@ -1,11 +1,11 @@
-"""Configuration from the environment. All env vars are optional.
+"""Session and notification settings from the environment.
 
 A `.env` file next to the working directory is loaded first (simple KEY=VALUE
 parser — no dotenv dependency); real environment variables win over it.
 
-Model and provider defaults deliberately live in `providers.py`, not here: this
-module only reports what the environment said, and empty means "the provider
-decides". Auth is provider-dependent too — see `providers.has_auth()`.
+Everything about LLM routing — which provider is active, its models, its auth —
+is read through `providers.py` from the environment and `prsentinel.yml`;
+this module only carries the two settings every entry point needs.
 """
 import os
 from dataclasses import dataclass
@@ -36,24 +36,12 @@ _load_dotenv()
 
 @dataclass(frozen=True)
 class Config:
-    api_key: str
-    auth_token: str
-    base_url: str
-    provider: str
-    model: str
-    claims_model: str
     session_root: Path
     slack_webhook: str
 
 
 def load_config() -> Config:
     return Config(
-        api_key=os.environ.get("ANTHROPIC_API_KEY", ""),
-        auth_token=os.environ.get("ANTHROPIC_AUTH_TOKEN", ""),
-        base_url=os.environ.get("ANTHROPIC_BASE_URL", ""),
-        provider=os.environ.get("PRS_PROVIDER", ""),
-        model=os.environ.get("PRS_MODEL", ""),
-        claims_model=os.environ.get("PRS_CLAIMS_MODEL", ""),
         session_root=Path(os.environ.get("PRS_SESSION_ROOT", "sessions")),
         slack_webhook=os.environ.get("SLACK_WEBHOOK_URL", ""),
     )
