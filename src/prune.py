@@ -72,6 +72,31 @@ def _truncate(patch: str, limit: int) -> tuple[str, int, int]:
     return f"{kept}\n… patch truncated: {len(lines) - limit} more lines", limit, len(lines)
 
 
+def _content(patch: str, sign: str) -> str:
+    """Every added or removed line's content, with all whitespace removed."""
+    header = sign * 3
+    return "".join(
+        "".join(line[1:].split())
+        for line in patch.splitlines()
+        if line.startswith(sign) and not line.startswith(header))
+
+
+def is_format_only(patch: str) -> bool:
+    """True when the additions and removals differ only in whitespace.
+
+    A Prettier or ESLint pass produces hundreds of diff lines and no review
+    signal. Comparing the concatenated content rather than line-by-line catches
+    rewrapping too, and because concatenation preserves order, swapping two
+    lines is correctly not format-only.
+
+    Whitespace-insensitive comparison is not semantics-preserving in
+    indentation-sensitive languages, so a true result only empties the patch —
+    the file stays in the review list and on disk.
+    """
+    added = _content(patch, "+")
+    return bool(added) and added == _content(patch, "-")
+
+
 def prune_files(files: list[dict], *, max_patch_lines: int = MAX_PATCH_LINES,
                 max_total_lines: int = MAX_TOTAL_PATCH_LINES
                 ) -> tuple[list[dict], list[dict]]:
@@ -92,6 +117,12 @@ def prune_files(files: list[dict], *, max_patch_lines: int = MAX_PATCH_LINES,
             continue
         entry = dict(f)
         patch = entry.get("patch") or ""
+        if is_format_only(patch):
+            entry["patch"] = ""
+            pruned.append({"filename": f["filename"], "reason": "format-only change",
+                           "dropped": False})
+            kept.append(entry)
+            continue
         limit = min(max_patch_lines, budget) if budget > 0 else 0
         if limit <= 0:
             entry["patch"] = ""

@@ -54,3 +54,60 @@ def test_prune_leaves_small_patches_untouched():
     kept, pruned = prune_files([_file("src/app.py", "@@\n+one\n+two")])
     assert kept[0]["patch"] == "@@\n+one\n+two"
     assert pruned == []
+
+
+from prune import is_format_only
+
+REINDENT = "@@ -1,2 +1,2 @@\n-def f():\n-  return 1\n+def f():\n+    return 1\n"
+REAL = "@@ -1,1 +1,1 @@\n-    return 1\n+    return 2\n"
+REWRAP = "@@ -1,2 +1,1 @@\n-foo(a,\n-    b)\n+foo(a, b)\n"
+SWAP = "@@ -1,2 +1,2 @@\n-a()\n-b()\n+b()\n+a()\n"
+ADDITION = "@@ -0,0 +1,1 @@\n+new_line()\n"
+CONTEXT_ONLY = "@@ -1,1 +1,1 @@\n unchanged\n"
+
+
+def test_a_reindent_is_format_only():
+    assert is_format_only(REINDENT) is True
+
+
+def test_a_rewrap_is_format_only():
+    assert is_format_only(REWRAP) is True
+
+
+def test_a_real_change_is_not_format_only():
+    assert is_format_only(REAL) is False
+
+
+def test_swapping_two_lines_is_not_format_only():
+    assert is_format_only(SWAP) is False
+
+
+def test_a_pure_addition_is_not_format_only():
+    assert is_format_only(ADDITION) is False
+
+
+def test_a_context_only_hunk_is_not_format_only():
+    assert is_format_only(CONTEXT_ONLY) is False
+
+
+def test_file_headers_are_not_mistaken_for_content():
+    patch = "--- a/x.py\n+++ b/x.py\n" + REAL
+    assert is_format_only(patch) is False
+
+
+def test_an_empty_patch_is_not_format_only():
+    assert is_format_only("") is False
+
+
+def test_prune_empties_a_format_only_patch_without_dropping_the_file():
+    kept, pruned = prune_files([{"filename": "a.py", "patch": REINDENT}])
+    assert [f["filename"] for f in kept] == ["a.py"]
+    assert kept[0]["patch"] == ""
+    assert pruned == [{"filename": "a.py", "reason": "format-only change",
+                       "dropped": False}]
+
+
+def test_prune_leaves_a_real_patch_alone():
+    kept, pruned = prune_files([{"filename": "a.py", "patch": REAL}])
+    assert kept[0]["patch"] == REAL
+    assert pruned == []
