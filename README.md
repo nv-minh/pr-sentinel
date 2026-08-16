@@ -133,13 +133,56 @@ dashboard run in the background; the page follows the log until they finish.
 Demo data ships in `sessions/demo/app/` — open
 `http://127.0.0.1:6789/repos/demo/app/pr/8` for a blocked review.
 
+## Providers
+
+PR Sentinel runs on the Claude Agent SDK, which speaks the Anthropic wire
+protocol — so it also runs against any gateway that exposes an
+Anthropic-compatible endpoint. Pick one in `prsentinel.yml`, put its key in
+`.env`:
+
+```yaml
+provider: deepseek          # anthropic (default) | deepseek | glm | your own
+```
+
+| Provider | Endpoint | Key | Deep dive | Claims |
+|---|---|---|---|---|
+| `anthropic` | *(default)* | `ANTHROPIC_API_KEY` | `claude-sonnet-5` | `claude-haiku-4-5-20251001` |
+| `deepseek` | `api.deepseek.com/anthropic` | `DEEPSEEK_API_KEY` | `deepseek-v4-pro` | `deepseek-v4-flash` |
+| `glm` | `api.z.ai/api/anthropic` | `ZAI_API_KEY` | `glm-5.2` | `glm-4.7` |
+
+Anything else is a few lines of config — every key is required:
+
+```yaml
+provider: my-gateway
+providers:
+  my-gateway:
+    base_url: https://llm.internal.example.com/anthropic
+    token_env: MY_GATEWAY_TOKEN
+    model: big-model
+    claims_model: small-model
+```
+
+**Two things change on a non-Anthropic provider.** Structured output is an
+Anthropic beta that third-party gateways ignore, so the JSON schema travels in
+the prompt instead and the reply is parsed — a malformed answer costs one repair
+turn, not a failed review. And `total_cost_usd` is priced from Anthropic's
+table, so cost is recorded as unknown and `max_budget_usd` does not apply.
+Set `structured_output: native` and `reports_cost: true` on a custom provider
+only if it genuinely implements both.
+
+Tokens are read from the environment and never written to `prsentinel.yml`; the
+dashboard shows whether a key is present, never the key.
+
 ## Configuration
 
 | Env | Default | Meaning |
 |---|---|---|
+| `PRS_PROVIDER` | `anthropic` | Overrides `provider:` in `prsentinel.yml` |
 | `ANTHROPIC_API_KEY` | — | Optional if the Claude Code CLI is logged in |
-| `PRS_MODEL` | `claude-sonnet-5` | Model for the deep-dive agent |
-| `PRS_CLAIMS_MODEL` | `claude-haiku-4-5-20251001` | Model for claims + description drafting |
+| `ANTHROPIC_AUTH_TOKEN` | — | Key for any provider; wins over the provider's own variable |
+| `ANTHROPIC_BASE_URL` | — | Point any provider at a different endpoint |
+| `PRS_MODEL` | provider's | Model for the deep-dive agent |
+| `PRS_CLAIMS_MODEL` | provider's | Model for claims + description drafting |
 | `PRS_SESSION_ROOT` | `sessions` | Where per-phase results are written |
 | `SLACK_WEBHOOK_URL` | — | Optional one-way notification |
 
@@ -163,7 +206,7 @@ never needs write access to report.
 ## Tests
 
 ```bash
-python -m pytest -q            # 183 tests
+python -m pytest -q            # 259 tests
 (cd web/ui && npm test -- --run)
 ```
 
