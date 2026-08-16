@@ -132,6 +132,11 @@ def test_agent_env_is_empty_for_plain_anthropic_without_a_token():
     assert providers.agent_env(p, env={}) == {}
 
 
+def test_agent_env_leaves_the_default_anthropic_path_alone():
+    p = providers.build("anthropic", None)
+    assert providers.agent_env(p, env={"ANTHROPIC_API_KEY": "sk-ant-x"}) == {}
+
+
 def test_validate_rejects_an_undefined_selection():
     with pytest.raises(ValueError, match="not built in"):
         providers.validate({"provider": "nope"})

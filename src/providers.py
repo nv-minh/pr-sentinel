@@ -139,16 +139,18 @@ def auth_hint(provider: Provider) -> str:
 def agent_env(provider: Provider, env: dict | None = None) -> dict:
     """Environment for the CLI subprocess the SDK spawns.
 
-    Both token variables are set: DeepSeek's docs read ANTHROPIC_API_KEY, Z.ai's
-    read ANTHROPIC_AUTH_TOKEN, and writing both also overrides a stale Anthropic
-    key inherited from the parent process (the SDK merges over os.environ and
-    cannot unset).
+    Both token variables are set, but only when the target is not Anthropic's
+    own endpoint: DeepSeek's docs read ANTHROPIC_API_KEY, Z.ai's read
+    ANTHROPIC_AUTH_TOKEN, and writing both also overrides a stale Anthropic key
+    inherited from the parent process (the SDK merges over os.environ and
+    cannot unset). On the default path the parent environment is already
+    correct, and Anthropic documents both set as a cause of 401.
     """
     out = {}
     if provider.base_url:
         out["ANTHROPIC_BASE_URL"] = provider.base_url
     key = token(provider, env)
-    if key:
+    if key and provider.base_url:
         out["ANTHROPIC_AUTH_TOKEN"] = key
         out["ANTHROPIC_API_KEY"] = key
     return out
