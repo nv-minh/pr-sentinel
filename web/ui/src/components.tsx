@@ -1,11 +1,13 @@
 import type { ReactNode } from 'react'
+import { Skeleton } from '@/components/ui/skeleton'
 import { GLYPH, TONE_COLOR, bandSegments, toneOf } from './status'
 import type { Tone } from './status'
 
 export function Mark({ status }: { status: string }) {
   const tone = toneOf(status)
   return (
-    <span className="row-mark" style={{ color: TONE_COLOR[tone] }} aria-hidden="true">
+    <span className="row-mark text-center font-mono text-[13px] font-bold leading-[1.6]"
+          style={{ color: TONE_COLOR[tone] }} aria-hidden="true">
       {GLYPH[tone]}
     </span>
   )
@@ -14,7 +16,8 @@ export function Mark({ status }: { status: string }) {
 export function StatusWord({ status }: { status: string }) {
   const tone = toneOf(status)
   return (
-    <span className="status-word" style={{ color: TONE_COLOR[tone] }}>
+    <span className="font-mono text-[11px] font-bold uppercase tracking-[0.1em]"
+          style={{ color: TONE_COLOR[tone] }}>
       {status || 'UNKNOWN'}
     </span>
   )
@@ -22,16 +25,32 @@ export function StatusWord({ status }: { status: string }) {
 
 export function Tile({ label, value, note }: { label: string; value: ReactNode; note?: string }) {
   return (
-    <div className="tile">
-      <div className="tile-label">{label}</div>
-      <div className="tile-value">{value}</div>
-      {note ? <div className="tile-note">{note}</div> : null}
+    <div className="tile bg-surface px-[18px] pt-4 pb-[18px]">
+      <div className="font-mono text-[10.5px] uppercase tracking-[0.14em] text-ink-muted">
+        {label}
+      </div>
+      <div className="mt-1.5 font-mono text-[30px] font-semibold tracking-[-0.02em] tabular-nums">
+        {value}
+      </div>
+      {note ? <div className="mt-0.5 text-xs text-ink-muted">{note}</div> : null}
+    </div>
+  )
+}
+
+export function Tiles({ children }: { children: ReactNode }) {
+  return (
+    <div className="grid grid-cols-[repeat(auto-fit,minmax(150px,1fr))] gap-px overflow-hidden rounded border border-hairline bg-hairline">
+      {children}
     </div>
   )
 }
 
 export function Eyebrow({ children }: { children: ReactNode }) {
-  return <h2 className="eyebrow">{children}</h2>
+  return (
+    <h2 className="mt-10 mb-3 flex items-center gap-2.5 font-mono text-[11px] uppercase tracking-[0.16em] text-ink-muted after:h-px after:flex-1 after:bg-hairline after:content-['']">
+      {children}
+    </h2>
+  )
 }
 
 /** The gate band: one horizontal bar segmented by merge decision. Each segment
@@ -40,16 +59,22 @@ export function Eyebrow({ children }: { children: ReactNode }) {
 export function GateBand({ counts }: { counts: Record<string, number> | undefined }) {
   const segments = bandSegments(counts)
   if (!segments.length) {
-    return <div className="band"><div className="band-empty">No scored reviews yet</div></div>
+    return (
+      <div className="my-2.5 flex h-[34px] gap-0.5">
+        <div className="flex flex-1 items-center justify-center rounded-sm border border-dashed border-hairline-strong font-mono text-xs text-ink-muted">
+          No scored reviews yet
+        </div>
+      </div>
+    )
   }
   return (
     <>
-      <div className="band" role="img" aria-label={segments
-        .map((s) => `${s.count} ${s.label}`).join(', ')}>
+      <div className="mt-1 mb-2.5 flex h-[34px] gap-0.5" role="img"
+           aria-label={segments.map((s) => `${s.count} ${s.label}`).join(', ')}>
         {segments.map((seg) => (
           <div
             key={seg.key}
-            className="band-seg"
+            className="band-seg flex min-w-0.5 items-center justify-center rounded-sm font-mono text-xs font-semibold text-white"
             style={{ flex: seg.share, background: TONE_COLOR[seg.key] }}
             title={`${seg.label}: ${seg.count}`}
           >
@@ -57,10 +82,10 @@ export function GateBand({ counts }: { counts: Record<string, number> | undefine
           </div>
         ))}
       </div>
-      <div className="legend">
+      <div className="flex flex-wrap gap-4 font-mono text-xs text-ink-muted">
         {segments.map((seg) => (
-          <span className="legend-item" key={seg.key}>
-            <span className="swatch" style={{ background: TONE_COLOR[seg.key] }} />
+          <span className="flex items-center gap-[7px]" key={seg.key}>
+            <ToneDot tone={seg.key} />
             {GLYPH[seg.key]} {seg.label} · {seg.count}
           </span>
         ))}
@@ -81,19 +106,26 @@ export function Row({
   const interactive = Boolean(onClick)
   return (
     <div
-      className="row"
+      className={`row grid grid-cols-[26px_minmax(0,1fr)_auto] items-start gap-3.5 border-b border-hairline px-0.5 py-[13px] hover:bg-brand-soft max-[620px]:grid-cols-[22px_minmax(0,1fr)] ${
+        interactive ? 'cursor-pointer' : ''
+      }`}
       onClick={onClick}
       role={interactive ? 'button' : undefined}
       tabIndex={interactive ? 0 : undefined}
-      onKeyDown={interactive ? (e) => { if (e.key === 'Enter') onClick?.() } : undefined}
-      style={interactive ? { cursor: 'pointer' } : undefined}
+      onKeyDown={interactive ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick?.() } } : undefined}
     >
       <Mark status={status} />
       <div>
-        <div className="row-title">{title}</div>
-        {meta ? <div className="row-meta">{meta}</div> : null}
+        <div className="text-[15px]">{title}</div>
+        {meta ? (
+          <div className="mt-[3px] break-words font-mono text-xs text-ink-muted">{meta}</div>
+        ) : null}
       </div>
-      {right ? <div className="row-right">{right}</div> : null}
+      {right ? (
+        <div className="row-right whitespace-nowrap text-right font-mono text-xs tabular-nums text-ink-muted max-[620px]:col-start-2 max-[620px]:text-left">
+          {right}
+        </div>
+      ) : null}
     </div>
   )
 }
@@ -103,20 +135,62 @@ export function Citations({ items }: { items: string[] }) {
   return (
     <>
       {items.map((item, i) => (
-        <span className="cite" key={`${item}-${i}`}>{item}</span>
+        <span className="mr-[5px] inline-block rounded-sm border border-hairline-strong px-[5px] py-px font-mono text-[11.5px] text-ink"
+              key={`${item}-${i}`}>
+          {item}
+        </span>
       ))}
     </>
   )
 }
 
 export function Empty({ children }: { children: ReactNode }) {
-  return <div className="empty">{children}</div>
+  return (
+    <div className="border-b border-hairline px-0.5 py-[18px] text-sm text-ink-muted">
+      {children}
+    </div>
+  )
 }
 
 export function Ledger({ children }: { children: ReactNode }) {
-  return <div className="ledger">{children}</div>
+  return <div className="border-t border-hairline">{children}</div>
 }
 
 export function ToneDot({ tone }: { tone: Tone }) {
-  return <span className="swatch" style={{ background: TONE_COLOR[tone] }} />
+  return (
+    <span className="size-2.5 flex-none rounded-sm"
+          style={{ background: TONE_COLOR[tone] }} />
+  )
+}
+
+/** Three skeleton rows: the page keeps its shape while the fetch lands, so the
+ *  layout does not jump when it does. */
+export function Loading({ label = 'Loading' }: { label?: string }) {
+  return (
+    <div className="space-y-2 py-4" role="status" aria-live="polite">
+      <span className="sr-only">{label}…</span>
+      <Skeleton className="h-6 w-1/3" />
+      <Skeleton className="h-4 w-2/3" />
+      <Skeleton className="h-4 w-1/2" />
+    </div>
+  )
+}
+
+export function ErrorNotice({ message }: { message: string }) {
+  return (
+    <div className="my-4 border-l-2 border-fail py-2 pl-3 font-mono text-[12.5px] text-ink"
+         role="alert">
+      {message}
+    </div>
+  )
+}
+
+export function Notice({ children, tone = 'info' }: { children: ReactNode; tone?: 'info' | 'fail' }) {
+  return (
+    <div className={`my-4 border-l-2 py-2 pl-3 font-mono text-[12.5px] ${
+      tone === 'fail' ? 'border-fail text-ink' : 'border-brand text-ink-muted'
+    }`}>
+      {children}
+    </div>
+  )
 }
