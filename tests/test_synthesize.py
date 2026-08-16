@@ -152,3 +152,27 @@ def test_report_includes_generated_tests(tmp_path):
 
 def test_report_has_no_test_section_without_pocs(tmp_path):
     assert "not been executed" not in build_report(SNAPSHOT, CLAIMS, FINDINGS, [], tmp_path)
+
+
+def test_report_records_why_there_was_no_requirement(tmp_path):
+    (tmp_path / "ticket.json").write_text(json.dumps(
+        {"primary": "", "tickets": [],
+         "skipped": "Jira is not configured (JIRA_BASE_URL, JIRA_EMAIL, JIRA_API_TOKEN)"}))
+    report = build_report(SNAPSHOT, CLAIMS, FINDINGS, [], tmp_path)
+    assert "Requirement: none available" in report
+    assert "Jira is not configured" in report
+
+
+def test_report_names_the_requirement_ticket(tmp_path):
+    (tmp_path / "ticket.json").write_text(json.dumps(
+        {"primary": "ABC-1", "tickets": [
+            {"key": "ABC-1", "url": "https://x.atlassian.net/browse/ABC-1"}],
+         "skipped": ""}))
+    report = build_report(SNAPSHOT, CLAIMS, FINDINGS, [], tmp_path)
+    assert "ABC-1" in report
+    assert "browse/ABC-1" in report
+
+
+def test_report_has_no_requirement_line_without_ticket_json(tmp_path):
+    report = build_report(SNAPSHOT, CLAIMS, FINDINGS, [], tmp_path)
+    assert "Requirement:" not in report

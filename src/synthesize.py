@@ -71,6 +71,18 @@ def build_report(snapshot: dict, claims: list[dict], findings: dict,
         for reason in scores.get("reasons", []):
             lines.append(f"  - {_bullet(reason, 200)}")
 
+    try:
+        ticket = json.loads((session_dir / "ticket.json").read_text())
+    except (OSError, json.JSONDecodeError):
+        ticket = None
+    if isinstance(ticket, dict):
+        if ticket.get("primary"):
+            url = (ticket.get("tickets") or [{}])[0].get("url", "")
+            lines += ["", f"- Requirement: judged against {ticket['primary']}"
+                           + (f" ({url})" if url else "")]
+        elif ticket.get("skipped"):
+            lines += ["", f"- Requirement: none available — {ticket['skipped']}"]
+
     _table(lines, "Claims", ["Claim", "Content", "Status", "Evidence", "Notes"],
            [[c["id"], _cell(text_by_id.get(c["id"], c.get("text", ""))),
              STATUS_LABELS.get(c["status"], c["status"]),
