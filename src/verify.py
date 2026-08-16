@@ -129,7 +129,8 @@ def setup_workspace(owner: str, repo: str, n: int, workspace: Path,
     _run_git(["checkout", "-B", branch, "FETCH_HEAD"], workspace)
 
 
-def _requirement_section(ticket: dict | None) -> str:
+def _requirement_section(ticket: dict | None,
+                         found: list[str] | None = None) -> str:
     """The ticket text wrapped as untrusted, or a line saying why there is none.
 
     Returns "" when no lookup happened at all, so a caller that never had a
@@ -149,7 +150,8 @@ def _requirement_section(ticket: dict | None) -> str:
                 f"status: {issue['status']} | type: {issue['type']} | "
                 f"priority: {issue['priority']}\n{issue['url']}\n\n"
                 f"{issue['description']}")
-        parts.append(f"{role}:\n" + untrusted.block(f"Jira {issue['key']}", body))
+        parts.append(f"{role}:\n"
+                     + untrusted.block(f"Jira {issue['key']}", body, found=found))
     return "\n" + "\n\n".join(parts) + "\n"
 
 
@@ -182,7 +184,7 @@ verdict depends on them):
  Review threads:
 {chr(10).join(threads) if threads else '- (none)'}
 
-{_requirement_section(ticket)}
+{_requirement_section(ticket, found=found)}
 
 Claims to verify — read the actual code, do not trust the description:
 {json.dumps(claims, indent=2)}
