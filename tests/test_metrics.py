@@ -282,6 +282,31 @@ def test_the_reply_loop_is_skipped_until_it_runs(tmp_path):
     assert _by_id(metrics.pipeline_graph(tmp_path, "demo", "app", 8))["followup"]["status"] == "skipped"
 
 
+def test_poc_is_skipped_when_nothing_is_broken(tmp_path):
+    _session(tmp_path,
+             snapshot__json={"body": "x" * 200},
+             findings__json={"impact": [], "callers_outside_diff": []})
+    assert _by_id(metrics.pipeline_graph(tmp_path, "demo", "app", 8))["poc"]["status"] == "skipped"
+
+
+def test_poc_is_pending_when_something_is_broken(tmp_path):
+    _session(tmp_path,
+             snapshot__json={"body": "x" * 200},
+             findings__json={"impact": [{"requirement": "R1", "impact": "BROKEN",
+                                         "detail": "", "paths": []}]})
+    assert _by_id(metrics.pipeline_graph(tmp_path, "demo", "app", 8))["poc"]["status"] == "pending"
+
+
+def test_poc_is_done_when_its_artifact_exists(tmp_path):
+    _session(tmp_path,
+             snapshot__json={"body": "x" * 200},
+             findings__json={"impact": [{"requirement": "R1", "impact": "BROKEN",
+                                         "detail": "", "paths": []}]},
+             poc__json=[{"target": "a.py", "framework": "pytest",
+                        "test_code": "...", "why_it_fails": "..."}])
+    assert _by_id(metrics.pipeline_graph(tmp_path, "demo", "app", 8))["poc"]["status"] == "done"
+
+
 def test_usage_lands_on_the_phase_that_spent_it(tmp_path):
     _session(tmp_path,
              snapshot__json={"body": "x" * 200},
@@ -329,6 +354,25 @@ def test_a_live_lock_during_doc_remediation_marks_remediate_running(tmp_path):
     assert nodes["report"]["status"] == "pending"
 
 
+def test_a_live_lock_during_poc_drafting_marks_poc_running(tmp_path):
+    # Regression for ORDER omitting "poc": once remediate has finished (no
+    # fixable doc here, so it is skipped) and something was found broken,
+    # poc — not report — is the phase actually running.
+    d = _session(tmp_path,
+                 snapshot__json={"body": "x" * 200},
+                 claims__json=[{"id": "C1"}],
+                 findings__json={"impact": [{"requirement": "R1", "impact": "BROKEN",
+                                             "detail": "", "paths": []}]},
+                 score__json={"gate": "fail", "verification_score": 0.5},
+                 answers__json=[])
+    (d / "review.lock").write_text(json.dumps({"pid": os.getpid(),
+                                               "started_at": "2026-08-16T10:00:00"}))
+    graph = metrics.pipeline_graph(tmp_path, "demo", "app", 8)
+    nodes = _by_id(graph)
+    assert nodes["poc"]["status"] == "running"
+    assert nodes["report"]["status"] == "pending"
+
+
 def test_edges_form_the_documented_dag(tmp_path):
     _session(tmp_path, snapshot__json={"body": "x" * 200})
     edges = {(e["source"], e["target"])
@@ -336,3 +380,5 @@ def test_edges_form_the_documented_dag(tmp_path):
     assert ("verify", "remediate") in edges     # doc-fix branch
     assert ("followup", "verify") in edges      # reply loop
     assert ("remediate", "report") in edges
+    assert ("verify", "poc") in edges           # PoC-test branch
+    assert ("poc", "report") in edges

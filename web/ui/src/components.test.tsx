@@ -74,6 +74,26 @@ describe('primitives', () => {
     expect(hits).toBe(2)
   })
 
+  it('does not let a nested control\'s keyboard activation bubble into the row\'s onClick', () => {
+    let hits = 0
+    render(
+      <Row status="PASS" title="t" onClick={() => { hits += 1 }}
+           right={<button type="button">Review now</button>} />,
+    )
+    const inner = container.querySelector('button') as HTMLButtonElement
+    act(() => {
+      inner.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true }))
+    })
+    expect(hits).toBe(0)
+    // the row itself must still activate on its own keydown — the guard
+    // must not silently disable row activation altogether.
+    const row = container.querySelector('.row') as HTMLElement
+    act(() => {
+      row.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true }))
+    })
+    expect(hits).toBe(1)
+  })
+
   it('renders a tile with its label and note', () => {
     render(<Tile label="Gate" value="fail" note="Blocked" />)
     expect(container.textContent).toContain('Gate')

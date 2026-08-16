@@ -21,7 +21,7 @@ export function App() {
   const [theme, toggleTheme] = useTheme()
 
   return (
-    <div className="mx-auto max-w-[1120px] px-7 pb-24">
+    <div className="mx-auto max-w-[1120px] px-7 pb-24 max-[620px]:px-4 max-[620px]:pb-16">
       <header className="mb-8 flex flex-wrap items-baseline gap-5 border-b border-hairline-strong pt-[22px] pb-[18px]">
         <a className="font-mono text-[13px] font-bold uppercase tracking-[0.14em] text-brand"
            {...link('/')}>

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import type { ProviderInfo } from '../api'
 import { api } from '../api'
 import {
-  Empty, ErrorNotice, Eyebrow, Ledger, Loading, Notice, Row, Tile, Tiles,
+  Empty, ErrorNotice, Eyebrow, Ledger, Loading, Notice, PageSub, PageTitle, Row, Tile, Tiles,
 } from '../components'
 import { Button } from '@/components/ui/button'
 import {
@@ -56,12 +56,8 @@ export function Config() {
 
   return (
     <>
-      <h1 className="mb-1.5 text-[clamp(28px,4vw,40px)] font-[680] leading-[1.08] tracking-[-0.025em]">
-        What the poller watches
-      </h1>
-      <p className="mb-7 font-mono text-[12.5px] tracking-[0.02em] text-ink-muted">
-        {cfg.config_path}
-      </p>
+      <PageTitle>What the poller watches</PageTitle>
+      <PageSub>{cfg.config_path}</PageSub>
 
       {error && <Notice tone="fail">{error}</Notice>}
 

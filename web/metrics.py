@@ -5,6 +5,7 @@ from datetime import datetime
 from pathlib import Path
 
 from describe import MIN_BODY_CHARS
+from poc import broken
 from remediate import fixable_docs
 from synthesize import _overall_verdict
 
@@ -358,6 +359,7 @@ PHASES = (
     {"id": "followup", "label": "Replies", "artifact": "replies.json"},
     {"id": "verify", "label": "Verify", "artifact": "findings.json"},
     {"id": "remediate", "label": "Doc fixes", "artifact": "patches.json"},
+    {"id": "poc", "label": "PoC tests", "artifact": "poc.json"},
     {"id": "score", "label": "Score", "artifact": "score.json"},
     {"id": "ask", "label": "Confirm", "artifact": "answers.json"},
     {"id": "report", "label": "Report", "artifact": "report.md"},
@@ -366,11 +368,13 @@ PHASES = (
 EDGES = (
     ("snapshot", "describe"), ("describe", "claims"), ("claims", "verify"),
     ("followup", "verify"), ("verify", "score"), ("verify", "remediate"),
-    ("score", "ask"), ("ask", "report"), ("remediate", "report"),
+    ("verify", "poc"), ("score", "ask"), ("ask", "report"),
+    ("remediate", "report"), ("poc", "report"),
 )
 
 # The path a run actually walks, used to decide which node is the live one.
-ORDER = ("snapshot", "describe", "claims", "verify", "score", "ask", "remediate", "report")
+ORDER = ("snapshot", "describe", "claims", "verify", "score", "ask", "remediate",
+         "poc", "report")
 
 
 def _phase_skipped(phase_id: str, snapshot: dict, findings: dict) -> bool:
@@ -379,6 +383,8 @@ def _phase_skipped(phase_id: str, snapshot: dict, findings: dict) -> bool:
         return len((snapshot.get("body") or "").strip()) >= MIN_BODY_CHARS
     if phase_id == "remediate":
         return not fixable_docs(findings)
+    if phase_id == "poc":
+        return not broken(findings)
     if phase_id == "followup":
         return True  # only ever runs on --reply; its artifact is the only proof
     return False
@@ -416,6 +422,9 @@ def _phase_metrics(phase_id: str, session_dir: Path, snapshot: dict,
     if phase_id == "remediate":
         return [{"label": "patches",
                  "value": len(_read_json_list(session_dir / "patches.json"))}]
+    if phase_id == "poc":
+        return [{"label": "tests",
+                 "value": len(_read_json_list(session_dir / "poc.json"))}]
     if phase_id == "followup":
         return [{"label": "replies",
                  "value": len(_read_json_list(session_dir / "replies.json"))}]

@@ -93,6 +93,9 @@ describe('PipelineGraph', () => {
     )
     const focusable = Array.from(candidates).filter((el) => el.getAttribute('tabindex') !== '-1')
     expect(focusable).toHaveLength(0)
+    // Regression: <MiniMap> was removed because it occluded two phase nodes.
+    // Re-adding it should fail this test rather than slip back in silently.
+    expect(container.querySelector('.react-flow__minimap')).toBeNull()
   })
 
   it('lets the text equivalent select a phase, so the graph is not the only way in', () => {

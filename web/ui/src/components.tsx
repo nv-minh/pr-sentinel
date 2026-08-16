@@ -53,6 +53,22 @@ export function Eyebrow({ children }: { children: ReactNode }) {
   )
 }
 
+export function PageTitle({ children }: { children: ReactNode }) {
+  return (
+    <h1 className="mb-1.5 text-[clamp(28px,4vw,40px)] font-[680] leading-[1.08] tracking-[-0.025em]">
+      {children}
+    </h1>
+  )
+}
+
+export function PageSub({ children }: { children: ReactNode }) {
+  return (
+    <p className="mb-7 font-mono text-[12.5px] tracking-[0.02em] text-ink-muted">
+      {children}
+    </p>
+  )
+}
+
 /** The gate band: one horizontal bar segmented by merge decision. Each segment
  *  carries its own count, and the legend repeats glyph + word, so the reading
  *  never depends on telling amber from red. */
@@ -112,7 +128,10 @@ export function Row({
       onClick={onClick}
       role={interactive ? 'button' : undefined}
       tabIndex={interactive ? 0 : undefined}
-      onKeyDown={interactive ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick?.() } } : undefined}
+      onKeyDown={interactive ? (e) => {
+        if (e.target !== e.currentTarget) return
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick?.() }
+      } : undefined}
     >
       <Mark status={status} />
       <div>
@@ -189,7 +208,7 @@ export function Notice({ children, tone = 'info' }: { children: ReactNode; tone?
   return (
     <div className={`my-4 border-l-2 py-2 pl-3 font-mono text-[12.5px] ${
       tone === 'fail' ? 'border-fail text-ink' : 'border-brand text-ink-muted'
-    }`}>
+    }`} role={tone === 'fail' ? 'alert' : undefined}>
       {children}
     </div>
   )

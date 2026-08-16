@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/button'
 import { api } from '../api'
 import type { PrDetail as Detail, Pipeline, ReviewStatus } from '../api'
 import {
-  Citations, Empty, ErrorNotice, Eyebrow, Ledger, Loading, Notice, Row,
+  Citations, Empty, ErrorNotice, Eyebrow, Ledger, Loading, Notice, PageSub, PageTitle, Row,
   StatusWord, Tile, Tiles,
 } from '../components'
 import { NODE_TAB } from '../graph/layout'
@@ -114,13 +114,14 @@ export function PrDetail({ owner, repo, pr }: { owner: string; repo: string; pr:
   const startReview = async (reply = false) => {
     try {
       await api.startReview(owner, repo, pr, reply)
+      setError('')
       setStatus({ running: true, stale: false })
     } catch (e) {
       setError(String((e as Error).message))
     }
   }
 
-  if (error) return <ErrorNotice message={error} />
+  if (error && !data) return <ErrorNotice message={error} />
   if (!data) return <Loading label="Loading the PR" />
 
   const rec = data.pr
@@ -142,19 +143,21 @@ export function PrDetail({ owner, repo, pr }: { owner: string; repo: string; pr:
 
   return (
     <>
-      <h1 className="mb-1.5 text-[clamp(28px,4vw,40px)] font-[680] leading-[1.08] tracking-[-0.025em]">
+      <PageTitle>
         <span className="font-mono text-ink-muted text-[0.7em]">
           #{pr}
         </span>{' '}
         {data.title || rec?.title || '(no title)'}
-      </h1>
-      <p className="mb-7 font-mono text-[12.5px] tracking-[0.02em] text-ink-muted">
+      </PageTitle>
+      <PageSub>
         {owner}/{repo} · {rec?.author ? `by ${rec.author} · ` : ''}
         {rec?.base} ← {rec?.head} ·{' '}
         <a className="text-brand hover:underline" href={`https://github.com/${owner}/${repo}/pull/${pr}`}>
           open on GitHub
         </a>
-      </p>
+      </PageSub>
+
+      {error && <Notice tone="fail">{error}</Notice>}
 
       {!data.reviewed ? (
         <>

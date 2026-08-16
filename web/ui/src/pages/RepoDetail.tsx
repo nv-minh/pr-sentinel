@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api } from '../api'
 import type { RepoRecord } from '../api'
-import { Empty, ErrorNotice, Eyebrow, GateBand, Ledger, Loading, Notice, Row, Tile, Tiles } from '../components'
+import {
+  Empty, ErrorNotice, Eyebrow, GateBand, Ledger, Loading, Notice, PageSub, PageTitle, Row, Tile,
+  Tiles,
+} from '../components'
 import { formatCost, formatScore } from '../status'
 import { navigate } from '../router'
 import { Button } from '@/components/ui/button'
@@ -35,7 +38,7 @@ export function RepoDetail({ owner, repo }: { owner: string; repo: string }) {
     }
   }
 
-  if (error) return <ErrorNotice message={error} />
+  if (error && !data) return <ErrorNotice message={error} />
   if (!data) return <Loading label="Loading repository" />
 
   const byPr = new Map(data.prs.map((p) => [p.pr, p]))
@@ -43,14 +46,14 @@ export function RepoDetail({ owner, repo }: { owner: string; repo: string }) {
 
   return (
     <>
-      <h1 className="mb-1.5 text-[clamp(28px,4vw,40px)] font-[680] leading-[1.08] tracking-[-0.025em]">
-        {owner}/{repo}
-      </h1>
-      <p className="mb-7 font-mono text-[12.5px] tracking-[0.02em] text-ink-muted">
+      <PageTitle>{owner}/{repo}</PageTitle>
+      <PageSub>
         <a className="text-brand hover:underline" href={`https://github.com/${owner}/${repo}`}>
           github.com/{owner}/{repo}
         </a>
-      </p>
+      </PageSub>
+
+      {error && <Notice tone="fail">{error}</Notice>}
 
       <Tiles>
         <Tile label="PRs reviewed" value={data.prs_total} />

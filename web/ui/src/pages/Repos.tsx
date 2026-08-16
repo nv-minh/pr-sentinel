@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
 import type { RepoRecord } from '../api'
-import { Empty, ErrorNotice, Eyebrow, Ledger, Loading, Row } from '../components'
+import { Empty, ErrorNotice, Eyebrow, Ledger, Loading, PageSub, PageTitle, Row } from '../components'
 import { formatCost, formatScore } from '../status'
 import { navigate } from '../router'
 
@@ -21,13 +21,11 @@ export function Repos() {
 
   return (
     <>
-      <h1 className="mb-1.5 text-[clamp(28px,4vw,40px)] font-[680] leading-[1.08] tracking-[-0.025em]">
-        Every claim, checked against the code.
-      </h1>
-      <p className="mb-7 font-mono text-[12.5px] tracking-[0.02em] text-ink-muted">
+      <PageTitle>Every claim, checked against the code.</PageTitle>
+      <PageSub>
         {reviewed.length} repo{reviewed.length === 1 ? '' : 's'} reviewed ·{' '}
         {reviewed.reduce((n, r) => n + r.prs_total, 0)} pull requests on the record
-      </p>
+      </PageSub>
 
       <Eyebrow>Reviewed repositories</Eyebrow>
       <Ledger>
