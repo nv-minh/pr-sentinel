@@ -10,6 +10,7 @@ from pathlib import Path
 
 from agent import BASH_TOOLS, READ_ONLY_TOOLS, record_usage
 from agent import run_structured as _default_runner
+import untrusted
 
 CLAIM_STATUS = ["PASS", "FAIL", "PARTIAL", "UNVERIFIED"]
 DOC_STATUS = ["MATCH", "STALE", "WRONG", "FABRICATED"]
@@ -49,11 +50,16 @@ FINDINGS_SCHEMA = {
         }, ["path", "status", "what"]),
         "impact": _array({
             "requirement": {"type": "string"},
+            "requirement_source": {
+                "type": "string",
+                "description": "where the requirement came from: a ticket key, "
+                               "'PR description', or 'inferred from code'",
+            },
             "impact": {"type": "string", "enum": IMPACT_STATUS},
             "area": {"type": "string", "enum": AREAS},
             "paths": {**_strings(), "description": "repo paths this requirement lives in"},
             "detail": {"type": "string"},
-        }, ["requirement", "impact", "area", "paths", "detail"]),
+        }, ["requirement", "requirement_source", "impact", "area", "paths", "detail"]),
         "callers_outside_diff": _array({
             "symbol": {"type": "string", "description": "function/class/endpoint that changed"},
             "defined_at": {"type": "string", "description": "file:line"},
@@ -94,7 +100,7 @@ SYSTEM_PROMPT = (
     "You are a meticulous code reviewer working inside a checkout of a pull "
     "request. You read the real code before judging anything. You never guess: "
     "a conclusion you cannot back with a file:line reference is UNVERIFIED, and "
-    "becomes a question for the human instead."
+    "becomes a question for the human instead." + untrusted.SYSTEM_CLAUSE
 )
 
 
@@ -123,7 +129,32 @@ def setup_workspace(owner: str, repo: str, n: int, workspace: Path,
     _run_git(["checkout", "-B", branch, "FETCH_HEAD"], workspace)
 
 
-def build_verify_prompt(snapshot: dict, claims: list[dict]) -> str:
+def _requirement_section(ticket: dict | None) -> str:
+    """The ticket text wrapped as untrusted, or a line saying why there is none.
+
+    Returns "" when no lookup happened at all, so a caller that never had a
+    ticket produces exactly the prompt it produced before this feature existed.
+    """
+    if ticket is None:
+        return ""
+    if not ticket.get("tickets"):
+        return ("\nRequirement: none available — "
+                + (ticket.get("skipped") or "no ticket was looked up")
+                + ". Judge `impact` against the PR description and set "
+                "requirement_source accordingly.\n")
+    parts = []
+    for issue in ticket["tickets"]:
+        role = "PRIMARY requirement" if issue["key"] == ticket.get("primary") else "related ticket"
+        body = (f"{issue['key']} — {issue['summary']}\n"
+                f"status: {issue['status']} | type: {issue['type']} | "
+                f"priority: {issue['priority']}\n{issue['url']}\n\n"
+                f"{issue['description']}")
+        parts.append(f"{role}:\n" + untrusted.block(f"Jira {issue['key']}", body))
+    return "\n" + "\n\n".join(parts) + "\n"
+
+
+def build_verify_prompt(snapshot: dict, claims: list[dict],
+                        ticket: dict | None = None) -> str:
     """Instruct the agent to verify the PR from inside the workspace."""
     files = [f"- {f['filename']} (+{f.get('additions', 0)}/-{f.get('deletions', 0)})"
              for f in snapshot["files"]]
@@ -144,8 +175,10 @@ Excluded from this summary (generated/oversized — read them from disk if a
 verdict depends on them):
 {chr(10).join(pruned) if pruned else '- (none)'}
 
-Review threads:
+ Review threads:
 {chr(10).join(threads) if threads else '- (none)'}
+
+{_requirement_section(ticket)}
 
 Claims to verify — read the actual code, do not trust the description:
 {json.dumps(claims, indent=2)}
@@ -161,7 +194,9 @@ Produce, in the required schema:
    what differs.
 3. impact — which requirement or business behaviour this change touches:
    CHANGED / BROKEN / UNAFFECTED / RISK, with the repo paths involved and the
-   area it belongs to.
+   area it belongs to. Judge against the requirement above when one is present,
+   and set requirement_source to that ticket's key; otherwise set it to
+   "PR description" or "inferred from code".
 4. callers_outside_diff — for each function, class, endpoint or exported symbol
    whose behaviour or signature changed, search the whole repository for callers
    that this PR does NOT touch. Report them with file:line and whether they still
@@ -205,12 +240,13 @@ def validate_findings(data: dict) -> dict:
 
 
 def run_verify(cfg: dict, workspace: Path, session_dir: Path, snapshot: dict,
-               claims: list[dict], runner=_default_runner) -> dict:
+               claims: list[dict], ticket: dict | None = None,
+               runner=_default_runner) -> dict:
     """Run the deep-dive agent and persist findings.json. Returns the findings."""
     session_dir.mkdir(parents=True, exist_ok=True)
     tools = BASH_TOOLS if cfg.get("allow_bash") else READ_ONLY_TOOLS
     result = runner(
-        build_verify_prompt(snapshot, claims),
+        build_verify_prompt(snapshot, claims, ticket),
         schema=FINDINGS_SCHEMA,
         cwd=workspace,
         tools=tools,
