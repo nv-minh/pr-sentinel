@@ -1,5 +1,10 @@
 import json
+from types import SimpleNamespace
 
+import pytest
+
+import agent
+import providers
 from agent import AgentResult, record_usage, total_cost
 
 
@@ -39,3 +44,69 @@ def test_total_cost_sums_phases(tmp_path):
 
 def test_total_cost_without_file(tmp_path):
     assert total_cost(tmp_path) == 0.0
+
+
+def _fake_result(**kw):
+    base = dict(subtype="success", session_id="sess-1", total_cost_usd=0.5,
+                num_turns=4, duration_ms=900, structured_output={"ok": True},
+                result=None)
+    base.update(kw)
+    return SimpleNamespace(**base)
+
+
+def _capture(monkeypatch, message=None):
+    """Run run_structured against a fake SDK, returning the options it built."""
+    seen = {}
+
+    async def fake_query(prompt, options):
+        seen["prompt"] = prompt
+        seen["options"] = options
+        return message or _fake_result()
+
+    monkeypatch.setattr(agent, "_query", fake_query)
+    return seen
+
+
+def test_anthropic_keeps_the_native_schema_path(monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_AUTH_TOKEN", raising=False)
+    seen = _capture(monkeypatch)
+    result = agent.run_structured("hi", schema={"type": "object"}, model="m")
+    assert result.data == {"ok": True}
+    assert seen["options"].output_format == {"type": "json_schema",
+                                             "schema": {"type": "object"}}
+    assert seen["options"].env == {}
+    assert seen["prompt"] == "hi"
+
+
+def test_provider_env_reaches_the_subprocess(monkeypatch):
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "k")
+    seen = _capture(monkeypatch)
+    agent.run_structured("hi", schema={"type": "object"},
+                         provider=providers.build("deepseek", {"structured_output": "native"}))
+    env = seen["options"].env
+    assert env["ANTHROPIC_BASE_URL"] == "https://api.deepseek.com/anthropic"
+    assert env["ANTHROPIC_AUTH_TOKEN"] == "k"
+    assert env["ANTHROPIC_API_KEY"] == "k"
+
+
+def test_native_path_still_rejects_a_missing_structured_output(monkeypatch):
+    _capture(monkeypatch, _fake_result(structured_output=None))
+    with pytest.raises(RuntimeError, match="no structured output"):
+        agent.run_structured("hi", schema={"type": "object"})
+
+
+def test_cost_is_dropped_when_the_provider_cannot_price_it(monkeypatch):
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "k")
+    _capture(monkeypatch)
+    result = agent.run_structured("hi", schema={"type": "object"},
+                                  provider=providers.build("deepseek", {"structured_output": "native"}))
+    assert result.cost_usd is None
+
+
+def test_budget_is_only_sent_to_a_provider_that_reports_cost(monkeypatch):
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "k")
+    seen = _capture(monkeypatch)
+    agent.run_structured("hi", schema={"type": "object"}, max_budget_usd=2.0,
+                         provider=providers.build("deepseek", {"structured_output": "native"}))
+    assert seen["options"].max_budget_usd is None

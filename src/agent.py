@@ -11,11 +11,15 @@ Safety defaults, applied to every call:
   skills, so a review only ever sees the repo under review.
 - tools default to read-only; the agent reports findings through the schema,
   it never edits the workspace.
+- provider routing goes through `ClaudeAgentOptions.env`, so a third-party
+  base URL and token never leak into the parent process's environment.
 """
 import asyncio
 import json
 from dataclasses import dataclass
 from pathlib import Path
+
+import providers
 
 # Read-only inspection tools: enough to verify claims, trace callers and read docs.
 READ_ONLY_TOOLS = ["Read", "Grep", "Glob"]
@@ -41,7 +45,8 @@ class AgentResult:
                 "duration_ms": self.duration_ms, "model": self.model}
 
 
-async def _query(prompt: str, options) -> AgentResult:
+async def _query(prompt: str, options):
+    """One turn-loop against the SDK. Returns the CLI's final result message."""
     from claude_agent_sdk import ResultMessage, query
 
     result = None
@@ -52,33 +57,15 @@ async def _query(prompt: str, options) -> AgentResult:
         raise RuntimeError("agent returned no result message")
     if result.subtype != "success":
         raise RuntimeError(f"agent stopped: {result.subtype}")
-    if result.structured_output is None:
-        raise RuntimeError("agent returned no structured output")
-    return AgentResult(
-        data=result.structured_output,
-        session_id=result.session_id,
-        cost_usd=result.total_cost_usd,
-        num_turns=result.num_turns,
-        duration_ms=result.duration_ms,
-    )
+    return result
 
 
-def run_structured(prompt: str, *, schema: dict, cwd: Path | str | None = None,
-                   tools: list[str] | None = None, model: str | None = None,
-                   max_turns: int | None = None,
-                   max_budget_usd: float | None = None,
-                   resume: str | None = None,
-                   system_prompt: str | None = None) -> AgentResult:
-    """Run one agent turn-loop and return its schema-validated JSON answer.
-
-    `tools=None` means no tools at all (a plain completion); pass
-    `READ_ONLY_TOOLS` for a code-reading agent. Every SDK failure is re-raised
-    as RuntimeError so callers can handle one exception type.
-    """
-    from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKError
+def _options(*, schema, cwd, tools, model, max_turns, max_budget_usd, resume,
+             system_prompt, env):
+    from claude_agent_sdk import ClaudeAgentOptions
 
     allowed = list(tools or [])
-    options = ClaudeAgentOptions(
+    return ClaudeAgentOptions(
         cwd=str(cwd) if cwd else None,
         model=model,
         tools=allowed,
@@ -90,14 +77,54 @@ def run_structured(prompt: str, *, schema: dict, cwd: Path | str | None = None,
         max_budget_usd=max_budget_usd,
         resume=resume,
         system_prompt=system_prompt,
-        output_format={"type": "json_schema", "schema": schema},
+        env=env,
+        output_format=({"type": "json_schema", "schema": schema}
+                       if schema is not None else None),
+    )
+
+
+def run_structured(prompt: str, *, schema: dict, cwd: Path | str | None = None,
+                   tools: list[str] | None = None, model: str | None = None,
+                   max_turns: int | None = None,
+                   max_budget_usd: float | None = None,
+                   resume: str | None = None,
+                   system_prompt: str | None = None,
+                   provider=None) -> AgentResult:
+    """Run one agent turn-loop and return its schema-validated JSON answer.
+
+    `tools=None` means no tools at all (a plain completion); pass
+    `READ_ONLY_TOOLS` for a code-reading agent. Every SDK failure is re-raised
+    as RuntimeError so callers can handle one exception type.
+    """
+    from claude_agent_sdk import ClaudeSDKError
+
+    if provider is None:
+        provider = providers.BUILTIN["anthropic"]
+    options = _options(
+        schema=schema if provider.is_native() else None,
+        cwd=cwd, tools=tools, model=model, max_turns=max_turns,
+        # A budget the provider cannot price is a hard stop that never fires.
+        max_budget_usd=max_budget_usd if provider.reports_cost else None,
+        resume=resume, system_prompt=system_prompt,
+        env=providers.agent_env(provider),
     )
     try:
-        result = asyncio.run(_query(prompt, options))
+        message = asyncio.run(_query(prompt, options))
     except ClaudeSDKError as e:
         raise RuntimeError(f"Claude Agent SDK failed: {e}") from e
-    result.model = model or ""
-    return result
+
+    if message.structured_output is None:
+        raise RuntimeError("agent returned no structured output")
+    data = message.structured_output
+
+    return AgentResult(
+        data=data,
+        session_id=message.session_id,
+        cost_usd=message.total_cost_usd if provider.reports_cost else None,
+        num_turns=message.num_turns,
+        duration_ms=message.duration_ms,
+        model=model or provider.model,
+    )
 
 
 def record_usage(session_dir: Path, phase: str, result: AgentResult) -> None:
