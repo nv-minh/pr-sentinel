@@ -218,6 +218,7 @@ def run_verify(cfg: dict, workspace: Path, session_dir: Path, snapshot: dict,
         system_prompt=SYSTEM_PROMPT,
         max_turns=cfg.get("max_turns", 60),
         max_budget_usd=cfg.get("max_budget_usd"),
+        session_dir=session_dir,
     )
     findings = validate_findings(result.data)
 

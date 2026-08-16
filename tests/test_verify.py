@@ -121,3 +121,17 @@ def test_run_verify_allows_bash_when_configured(tmp_path):
     run_verify({"model": "m", "allow_bash": True}, tmp_path / "ws", tmp_path / "s",
                SNAPSHOT, [], runner=runner)
     assert "Bash" in captured["tools"]
+
+
+def test_run_verify_mirrors_the_transcript_into_the_session(tmp_path):
+    captured = {}
+
+    def runner(prompt, **kw):
+        captured.update(kw)
+        return AgentResult(data=dict(FINDINGS), session_id="sess-1", cost_usd=0.1,
+                           num_turns=2, duration_ms=10)
+
+    session_dir = tmp_path / "s"
+    run_verify({"model": "m"}, tmp_path / "ws", session_dir, SNAPSHOT, [],
+               runner=runner)
+    assert captured["session_dir"] == session_dir
