@@ -1,8 +1,16 @@
-import { useCallback, useEffect, useState } from 'react'
+import { Suspense, lazy, useCallback, useEffect, useState } from 'react'
+import { Button } from '@/components/ui/button'
 import { api } from '../api'
-import type { PrDetail as Detail, ReviewStatus } from '../api'
-import { Citations, Empty, Eyebrow, Ledger, Row, StatusWord, Tile } from '../components'
+import type { PrDetail as Detail, Pipeline, ReviewStatus } from '../api'
+import {
+  Citations, Empty, ErrorNotice, Eyebrow, Ledger, Loading, Notice, Row,
+  StatusWord, Tile, Tiles,
+} from '../components'
+import { NODE_TAB } from '../graph/layout'
 import { GATE_WORD, formatCost, formatScore } from '../status'
+
+// React Flow is ~100 kB gzipped and only this route needs it.
+const PipelineGraph = lazy(() => import('../graph/PipelineGraph'))
 
 type TabKey =
   | 'claims' | 'docs' | 'impact' | 'callers' | 'contracts' | 'tests'
@@ -20,32 +28,75 @@ const TABS: { key: TabKey; label: string }[] = [
   { key: 'context', label: 'Context' },
 ]
 
+/** Every finding severe enough to block a merge, most severe group first.
+ *  Each row answers "why" and links straight to the tab that has the detail —
+ *  the point being that a blocking risk should never be three clicks away. */
+const BLOCKING: {
+  tab: TabKey
+  label: string
+  pick: (d: Detail) => { status: string; title: string; detail: string }[]
+}[] = [
+  { tab: 'contracts', label: 'Contract',
+    pick: (d) => (d.contracts ?? [])
+      .filter((c) => c.status !== 'COMPATIBLE')
+      .map((c) => ({ status: c.status, title: c.path, detail: c.detail })) },
+  { tab: 'callers', label: 'Caller',
+    pick: (d) => (d.callers ?? [])
+      .filter((c) => c.risk === 'BROKEN')
+      .map((c) => ({ status: c.risk, title: c.symbol, detail: c.note })) },
+  { tab: 'claims', label: 'Claim',
+    pick: (d) => (d.claims ?? [])
+      .filter((c) => c.status === 'FAIL')
+      .map((c) => ({ status: c.status, title: c.text || c.id, detail: c.note })) },
+  { tab: 'impact', label: 'Impact',
+    pick: (d) => (d.impact ?? [])
+      .filter((i) => i.impact === 'BROKEN')
+      .map((i) => ({ status: i.impact, title: i.requirement, detail: i.detail })) },
+  { tab: 'docs', label: 'Doc',
+    pick: (d) => (d.docs ?? [])
+      .filter((x) => x.status === 'WRONG' || x.status === 'FABRICATED')
+      .map((x) => ({ status: x.status, title: x.path, detail: x.what })) },
+  { tab: 'tests', label: 'Test',
+    pick: (d) => (d.tests ?? [])
+      .filter((t) => t.assertion_quality === 'MISSING')
+      .map((t) => ({ status: t.assertion_quality, title: t.target, detail: t.note })) },
+]
+
 export function PrDetail({ owner, repo, pr }: { owner: string; repo: string; pr: number }) {
   const [data, setData] = useState<Detail | null>(null)
   const [status, setStatus] = useState<ReviewStatus | null>(null)
   const [log, setLog] = useState('')
   const [tab, setTab] = useState<TabKey>('claims')
   const [error, setError] = useState('')
+  const [pipeline, setPipeline] = useState<Pipeline | null>(null)
+  const [phase, setPhase] = useState<string | null>(null)
 
   const load = useCallback(() => {
     api.pr(owner, repo, pr).then(setData).catch((e) => setError(String(e.message)))
   }, [owner, repo, pr])
 
-  useEffect(load, [load])
+  const loadGraph = useCallback(() => {
+    api.graph(owner, repo, pr).then(setPipeline).catch(() => setPipeline(null))
+  }, [owner, repo, pr])
 
-  // While a review runs, follow its log; reload the page data when it finishes.
+  useEffect(load, [load])
+  useEffect(loadGraph, [loadGraph])
+
+  // While a review runs, follow its log and the pipeline graph; reload the
+  // page data (and the graph) when it finishes.
   useEffect(() => {
     let running = true
     const tick = async () => {
       try {
         const s = await api.reviewStatus(owner, repo, pr)
         setStatus((prev) => {
-          if (prev?.running && !s.running) load()
+          if (prev?.running && !s.running) { load(); loadGraph() }
           return s
         })
         if (s.running) {
           const l = await api.reviewLog(owner, repo, pr)
           setLog(l.log)
+          loadGraph()
         }
       } catch {
         /* the dashboard keeps working even if one poll fails */
@@ -54,7 +105,7 @@ export function PrDetail({ owner, repo, pr }: { owner: string; repo: string; pr:
     }
     tick()
     return () => { running = false }
-  }, [owner, repo, pr, load])
+  }, [owner, repo, pr, load, loadGraph])
 
   const startReview = async (reply = false) => {
     try {
@@ -65,8 +116,8 @@ export function PrDetail({ owner, repo, pr }: { owner: string; repo: string; pr:
     }
   }
 
-  if (error) return <div className="notice notice-fail">{error}</div>
-  if (!data) return <div className="page-sub">Loading…</div>
+  if (error) return <ErrorNotice message={error} />
+  if (!data) return <Loading label="Loading the PR" />
 
   const rec = data.pr
   const score = data.score ?? {}
@@ -82,34 +133,35 @@ export function PrDetail({ owner, repo, pr }: { owner: string; repo: string; pr:
     confirm: data.answers?.length ?? 0,
     context: data.pruned?.length ?? 0,
   }
+  const blocking = BLOCKING.flatMap((group) =>
+    group.pick(data).map((item) => ({ ...item, ...group })))
 
   return (
     <>
-      <h1 className="page-title">
+      <h1 className="mb-1.5 text-[clamp(28px,4vw,40px)] font-[680] leading-[1.08] tracking-[-0.025em]">
         <span className="font-mono text-ink-muted text-[0.7em]">
           #{pr}
         </span>{' '}
         {data.title || rec?.title || '(no title)'}
       </h1>
-      <p className="page-sub">
+      <p className="mb-7 font-mono text-[12.5px] tracking-[0.02em] text-ink-muted">
         {owner}/{repo} · {rec?.author ? `by ${rec.author} · ` : ''}
         {rec?.base} ← {rec?.head} ·{' '}
-        <a className="linkish" href={`https://github.com/${owner}/${repo}/pull/${pr}`}>
+        <a className="text-brand hover:underline" href={`https://github.com/${owner}/${repo}/pull/${pr}`}>
           open on GitHub
         </a>
       </p>
 
       {!data.reviewed ? (
         <>
-          <div className="notice">This pull request has not been reviewed yet.</div>
-          <button className="button" onClick={() => startReview(false)}
-                  disabled={status?.running}>
+          <Notice>This pull request has not been reviewed yet.</Notice>
+          <Button onClick={() => startReview(false)} disabled={status?.running}>
             {status?.running ? 'Reviewing…' : 'Review now'}
-          </button>
+          </Button>
         </>
       ) : (
         <>
-          <div className="tiles">
+          <Tiles>
             <Tile label="Gate" value={<StatusWord status={gate} />} note={GATE_WORD[gate]} />
             <Tile label="Verified" value={formatScore(score.verification_score ?? rec?.verification_score)}
                   note="claims with file:line" />
@@ -118,28 +170,43 @@ export function PrDetail({ owner, repo, pr }: { owner: string; repo: string; pr:
             <Tile label="Business risk" value={score.business_risk ?? '—'} />
             <Tile label="Rounds" value={rec?.rounds ?? 1} />
             <Tile label="Cost" value={formatCost(rec?.cost_usd)} />
-          </div>
+          </Tiles>
 
-          {score.reasons && score.reasons.length > 0 && (
-            <div className={gate === 'fail' ? 'notice notice-fail' : 'notice'}>
-              Why this gate:
-              <ul className="reasons">
-                {score.reasons.map((r, i) => <li key={i}>{r}</li>)}
-              </ul>
-            </div>
+          <Eyebrow>Pipeline</Eyebrow>
+          {pipeline?.nodes?.length ? (
+            <Suspense fallback={<Loading label="Loading the pipeline" />}>
+              <PipelineGraph
+                pipeline={pipeline}
+                selected={phase}
+                onSelect={(id) => {
+                  setPhase(id)
+                  const next = NODE_TAB[id]
+                  if (next) setTab(next as TabKey)
+                }}
+              />
+            </Suspense>
+          ) : (
+            <Notice>No pipeline data for this review yet.</Notice>
           )}
 
-          <div className="toolbar">
-            <button className="button" onClick={() => startReview(false)}
-                    disabled={status?.running}>
+          {score.reasons && score.reasons.length > 0 && (
+            <Notice tone={gate === 'fail' ? 'fail' : 'info'}>
+              Why this gate:
+              <ul className="mt-1.5 list-disc space-y-0.5 pl-5">
+                {score.reasons.map((r, i) => <li key={i}>{r}</li>)}
+              </ul>
+            </Notice>
+          )}
+
+          <div className="flex flex-wrap items-center gap-3">
+            <Button onClick={() => startReview(false)} disabled={status?.running}>
               {status?.running ? 'Reviewing…' : 'Re-review'}
-            </button>
-            <button className="button button-quiet" onClick={() => startReview(true)}
-                    disabled={status?.running}>
+            </Button>
+            <Button variant="outline" onClick={() => startReview(true)} disabled={status?.running}>
               Answer replies
-            </button>
+            </Button>
             {status?.last?.exit !== undefined && !status.running && (
-              <span className="linkish">
+              <span className="font-mono text-xs text-ink-muted">
                 last run exit {status.last.exit} · {status.last.finished_at}
               </span>
             )}
@@ -148,20 +215,40 @@ export function PrDetail({ owner, repo, pr }: { owner: string; repo: string; pr:
           {status?.running && (
             <>
               <Eyebrow>Review in progress</Eyebrow>
-              <pre className="log">{log || 'starting…'}</pre>
+              <pre className="max-h-[260px] overflow-auto rounded border border-hairline bg-surface px-3.5 py-3 font-mono text-xs whitespace-pre-wrap text-ink-muted">
+                {log || 'starting…'}
+              </pre>
             </>
           )}
 
-          <div className="tabs" role="tablist">
+          {blocking.length > 0 && (
+            <>
+              <Eyebrow>Blocking ({blocking.length})</Eyebrow>
+              <Ledger>
+                {blocking.map((item, i) => (
+                  <Row
+                    key={`${item.tab}-${i}`}
+                    status={item.status}
+                    title={<>{item.title} <StatusWord status={item.status} /></>}
+                    meta={item.detail}
+                    right={item.label}
+                    onClick={() => setTab(item.tab)}
+                  />
+                ))}
+              </Ledger>
+            </>
+          )}
+
+          <div className="tabs mt-7 mb-1 flex flex-wrap gap-1 border-b border-hairline-strong" role="tablist">
             {TABS.map((t) => (
               <button
                 key={t.key}
                 role="tab"
-                className="tab"
+                className="tab border-b-2 border-transparent px-2.5 py-2 font-mono text-xs uppercase tracking-[0.06em] text-ink-muted aria-selected:border-brand aria-selected:text-ink"
                 aria-selected={tab === t.key}
                 onClick={() => setTab(t.key)}
               >
-                {t.label} <span className="tab-count">{counts[t.key]}</span>
+                {t.label} <span className="tabular-nums">{counts[t.key]}</span>
               </button>
             ))}
           </div>
