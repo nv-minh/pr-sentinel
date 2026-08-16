@@ -151,7 +151,14 @@ def main(argv: list[str] | None = None) -> int:
 
     env = load_config()
     review_cfg = load_review_config()
-    cfg = agent_config(env, review_cfg)
+    try:
+        cfg = agent_config(env, review_cfg)
+    except ValueError as e:
+        # A YAML typo is caught by providers.validate() at load time; an env
+        # override (PRS_PROVIDER) bypasses that and must not surface as a
+        # raw traceback.
+        print(f"Error: {e}", file=sys.stderr)
+        return 2
     skip_human = args.skip_human or args.ci
     post = not (args.no_post or args.dry_run or args.fixtures is not None)
 

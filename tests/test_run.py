@@ -224,6 +224,16 @@ def test_agent_config_defaults_to_anthropic(monkeypatch):
     assert cfg["model"] == "claude-sonnet-5"
 
 
+def test_run_rejects_an_unknown_provider_cleanly(monkeypatch, tmp_path, capsys):
+    """A PRS_PROVIDER typo bypasses providers.validate() (YAML-load time only)
+    — main() must turn the ValueError into exit 2, not a raw traceback."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("PRS_PROVIDER", "typo")
+    monkeypatch.setenv("PRS_SESSION_ROOT", str(tmp_path / "sessions"))
+    assert run.main(["owner/repo", "1"]) == 2
+    assert "not built in" in capsys.readouterr().err
+
+
 def test_run_refuses_a_provider_without_a_token(monkeypatch, tmp_path, capsys):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("PRS_PROVIDER", "deepseek")

@@ -409,6 +409,16 @@ def test_api_config_flags_a_missing_token(tmp_path, monkeypatch):
     assert body["provider"]["token_present"] is False
 
 
+def test_api_config_rejects_an_unknown_env_provider_as_400(tmp_path, monkeypatch):
+    """PRS_PROVIDER bypasses providers.validate() (YAML-load time only) — the
+    dashboard's Config page must get the usual 400, not a 500."""
+    monkeypatch.setenv("PRS_PROVIDER", "typo")
+    _config(tmp_path, monkeypatch)
+    r = TestClient(app).get("/api/config")
+    assert r.status_code == 400
+    assert "not built in" in r.json()["detail"]
+
+
 def test_switch_provider_writes_the_yaml(tmp_path, monkeypatch):
     monkeypatch.delenv("PRS_PROVIDER", raising=False)
     cfg_path = _config(tmp_path, monkeypatch)

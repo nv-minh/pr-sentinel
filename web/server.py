@@ -125,6 +125,10 @@ def api_config():
     try:
         cfg = load_autoreview_config(path)
         repos = list_repos(path)
+        # An unknown PRS_PROVIDER bypasses providers.validate() (it only runs
+        # at YAML-load time), so resolve() must stay inside this try or a
+        # one-character typo surfaces as a 500 instead of the usual 400.
+        provider_info = providers.describe(providers.resolve(cfg))
     except (ValueError, OSError) as e:
         raise HTTPException(status_code=400, detail=f"invalid config: {e}")
     return {
@@ -138,7 +142,7 @@ def api_config():
         "docs_fix_pr": cfg.get("docs_fix_pr"),
         "inline_suggestions": cfg.get("inline_suggestions"),
         "gate": cfg.get("gate"),
-        "provider": providers.describe(providers.resolve(cfg)),
+        "provider": provider_info,
         "providers": providers.names(cfg),
         "repos": repos,
         "config_path": str(path),
