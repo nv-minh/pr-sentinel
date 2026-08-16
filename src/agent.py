@@ -109,17 +109,24 @@ def compat_prompt(prompt: str, schema: dict) -> str:
 def extract_json(text: str) -> dict:
     """The JSON object in a free-text model reply.
 
-    Providers in prompt mode wrap the answer in fences, prose, or both. Every
-    fenced block is tried in order — a follow-up reply often quotes fenced
-    code back at the model before its own answer — and the first one that
-    parses as a JSON object wins. When none does, the fallback brace-scans
-    the first fence when there is one, the whole reply otherwise.
+    Tried in order: the whole reply (the instructed shape is one bare object,
+    and a bare reply whose string values happen to contain fences must not be
+    mistaken for a fenced block); every fenced block, last first (a model that
+    restates the schema before answering leaves the answer in the final
+    block); then a brace-scan fallback over the first fence when there is
+    one, the whole reply otherwise.
     """
     if not (text or "").strip():
         raise RuntimeError("agent returned an empty reply")
     body = text.strip()
+    try:
+        data = json.loads(body)
+        if isinstance(data, dict):
+            return data
+    except json.JSONDecodeError:
+        pass
     fences = re.findall(r"```(?:json)?\s*(.+?)```", body, re.S)
-    for fence in fences:
+    for fence in reversed(fences):
         try:
             data = json.loads(fence.strip())
         except json.JSONDecodeError:
@@ -178,6 +185,7 @@ def run_structured(prompt: str, *, schema: dict, cwd: Path | str | None = None,
     except ClaudeSDKError as e:
         raise RuntimeError(f"Claude Agent SDK failed: {e}") from e
 
+    repaired = False
     if provider.is_native():
         if message.structured_output is None:
             raise RuntimeError("agent returned no structured output")
@@ -188,9 +196,14 @@ def run_structured(prompt: str, *, schema: dict, cwd: Path | str | None = None,
         except RuntimeError as first:
             # One repair turn, resuming the same session: the model already did
             # the work, it just wrote the answer the wrong way.
+            first_message = message
+            repaired = True
             repair = _options(
                 schema=None, cwd=cwd, tools=None, model=model, max_turns=2,
-                max_budget_usd=None, resume=message.session_id,
+                # Same budget gating as the first call: a provider we trust to
+                # price stays capped on the repair too.
+                max_budget_usd=max_budget_usd if provider.reports_cost else None,
+                resume=first_message.session_id,
                 system_prompt=system_prompt, session_dir=session_dir,
                 env=providers.agent_env(provider))
             try:
@@ -204,12 +217,23 @@ def run_structured(prompt: str, *, schema: dict, cwd: Path | str | None = None,
                 raise RuntimeError(
                     f"repair turn failed too: {second}") from first
 
+    # A repair turn is a second real attempt: fold its turns/time/cost into the
+    # phase total instead of discarding the first attempt's accounting.
+    num_turns = message.num_turns
+    duration_ms = message.duration_ms
+    cost_usd = message.total_cost_usd if provider.reports_cost else None
+    if repaired:
+        num_turns += first_message.num_turns
+        duration_ms += first_message.duration_ms
+        if provider.reports_cost:
+            cost_usd = (cost_usd or 0.0) + (first_message.total_cost_usd or 0.0)
+
     return AgentResult(
         data=data,
         session_id=message.session_id,
-        cost_usd=message.total_cost_usd if provider.reports_cost else None,
-        num_turns=message.num_turns,
-        duration_ms=message.duration_ms,
+        cost_usd=cost_usd,
+        num_turns=num_turns,
+        duration_ms=duration_ms,
         model=model or provider.model,
     )
 

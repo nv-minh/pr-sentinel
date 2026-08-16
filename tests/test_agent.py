@@ -166,6 +166,23 @@ def test_extract_json_reports_a_syntax_error():
         agent.extract_json('{"a": 1,}')
 
 
+def test_extract_json_does_not_mistake_a_fence_inside_a_string_value():
+    """remediate.PATCH_SCHEMA's old_snippet is documentation copied verbatim,
+    and documentation contains fences constantly — a bare reply must be tried
+    whole before the fence regex gets a chance to match inside a string."""
+    text = '{"patches": [{"old_snippet": "see ```py\\nx=1\\n``` here"}]}'
+    assert agent.extract_json(text) == {
+        "patches": [{"old_snippet": "see ```py\nx=1\n``` here"}]}
+
+
+def test_extract_json_prefers_the_last_fenced_block_over_an_echoed_schema():
+    """compat_prompt puts the schema in the prompt; a model that echoes it
+    back before answering must not have the echo mistaken for the answer."""
+    text = ('Schema:\n```json\n{"type": "object", "properties": {}}\n```\n'
+            'Answer:\n```json\n{"claims": []}\n```')
+    assert agent.extract_json(text) == {"claims": []}
+
+
 def test_compat_prompt_carries_the_schema():
     out = agent.compat_prompt("do the thing", {"type": "object"})
     assert out.startswith("do the thing")
@@ -206,6 +223,35 @@ def test_prompt_mode_repairs_a_bad_reply_by_resuming(monkeypatch):
     assert repair_options.max_turns == 2
     assert repair_options.allowed_tools == []   # nothing left to read
     assert "could not be parsed" in repair_prompt
+
+
+def test_repair_turn_accumulates_turns_duration_and_cost(monkeypatch):
+    """A provider trusted to price cost (structured_output: prompt,
+    reports_cost: true, as the README documents for a custom gateway) must not
+    have the first attempt's turns/time/cost discarded when a repair turn
+    runs, and the repair must stay under the same budget as the first call."""
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "k")
+    calls = []
+
+    async def fake_query(prompt, options):
+        calls.append((prompt, options))
+        if len(calls) == 1:
+            return _fake_result(structured_output=None, result="no idea, sorry",
+                                total_cost_usd=0.10, num_turns=3, duration_ms=500)
+        return _fake_result(structured_output=None, result='{"claims": []}',
+                            session_id="sess-2", total_cost_usd=0.05,
+                            num_turns=2, duration_ms=300)
+
+    monkeypatch.setattr(agent, "_query", fake_query)
+    provider = providers.build("deepseek", {"reports_cost": True})
+    result = agent.run_structured("extract", schema={"type": "object"},
+                                  max_budget_usd=2.0, provider=provider)
+    assert result.data == {"claims": []}
+    assert result.num_turns == 5
+    assert result.duration_ms == 800
+    assert result.cost_usd == pytest.approx(0.15)
+    _, repair_options = calls[1]
+    assert repair_options.max_budget_usd == 2.0
 
 
 def test_prompt_mode_gives_up_after_one_repair(monkeypatch):
