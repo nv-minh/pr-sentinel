@@ -347,3 +347,30 @@ def test_a_sensitive_pr_runs_on_the_critical_tier(tmp_path, monkeypatch):
     assert main(["demo/app", "7", "--no-post", "--skip-human"]) == 0
     assert seen["cfg"]["effort"] == "high"
     assert seen["cfg"]["allow_bash"] is True
+
+
+def test_findings_are_posted_as_one_review(tmp_path, monkeypatch):
+    posted = []
+    _patch_pipeline(monkeypatch, tmp_path, [], [])
+    monkeypatch.setattr("run.post_comment", lambda *a, **kw: True)
+    monkeypatch.setattr("gh.post_review",
+                        lambda *a, **kw: posted.append(kw) or True)
+    monkeypatch.setattr("annotations.candidates",
+                        lambda findings: [{"path": "src/a.py", "line": 1, "body": "x"}])
+    monkeypatch.setattr("annotations.diff_lines", lambda snapshot: {"src/a.py": {1}})
+    assert main(["demo/app", "7", "--skip-human"]) == 0
+    assert len(posted) == 1
+    assert posted[0]["comments"] == [{"path": "src/a.py", "line": 1, "body": "x"}]
+
+
+def test_unanchorable_findings_reach_the_summary_comment(tmp_path, monkeypatch):
+    bodies = []
+    _patch_pipeline(monkeypatch, tmp_path, [], [])
+    monkeypatch.setattr("run.post_comment",
+                        lambda o, r, n, body, **kw: bodies.append(body) or True)
+    monkeypatch.setattr("gh.post_review", lambda *a, **kw: True)
+    monkeypatch.setattr("annotations.candidates",
+                        lambda findings: [{"path": "gone.py", "line": 4, "body": "orphan"}])
+    assert main(["demo/app", "7", "--skip-human"]) == 0
+    assert "orphan" in bodies[0]
+    assert "could not be anchored" in bodies[0]

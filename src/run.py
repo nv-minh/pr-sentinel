@@ -81,37 +81,45 @@ def _bump_rounds(session_dir: Path) -> None:
     path.write_text(str(current + 1))
 
 
+def _orphan_section(orphans: list[dict]) -> str:
+    """Findings GitHub would not accept inline, folded into the summary comment."""
+    blocks = "\n\n".join(f"**`{o['path']}`**\n\n{o['body']}" for o in orphans)
+    return ("<details>\n\n<summary>Findings that could not be anchored to the diff "
+            f"({len(orphans)})</summary>\n\n{blocks}\n\n</details>")
+
+
 def _remediate(review_cfg: dict, cfg: dict, owner: str, repo: str, num: int,
                workspace: Path, session_dir: Path, snapshot: dict, findings: dict,
-               post: bool) -> str:
-    """Draft doc fixes and deliver them. Returns markdown for the summary comment."""
+               post: bool) -> tuple[str, list[dict]]:
+    """Draft doc fixes and deliver them. Returns (comment markdown, inline comments)."""
     import remediate
 
     if not remediate.fixable_docs(findings):
-        return ""
+        return "", []
     if not (review_cfg.get("inline_suggestions", True) or review_cfg.get("docs_fix_pr")):
-        return ""
+        return "", []
     try:
         patches = _load_or_skip("patches.json", session_dir, False)
         if patches is None:
             patches = remediate.draft_patches(findings, cfg, workspace, session_dir)
     except RuntimeError as e:
         print(f"[run] doc patch drafting failed: {e}", file=sys.stderr)
-        return ""
+        return "", []
     if not patches:
-        return ""
+        return "", []
 
+    comments: list[dict] = []
     leftover = patches
-    if post and review_cfg.get("inline_suggestions", True):
-        _, leftover = remediate.post_suggestions(owner, repo, num, patches, snapshot)
+    if review_cfg.get("inline_suggestions", True):
+        comments, leftover = remediate.suggestion_comments(patches, snapshot)
     if post and leftover and review_cfg.get("docs_fix_pr"):
         try:
             url = remediate.create_docs_fix_pr(owner, repo, num, leftover, snapshot, workspace)
             if url:
-                return f"Documentation fixes opened as a follow-up PR: {url}"
+                return f"Documentation fixes opened as a follow-up PR: {url}", comments
         except RuntimeError as e:
             print(f"[run] docs-fix PR failed: {e}", file=sys.stderr)
-    return remediate.comment_section(leftover)
+    return remediate.comment_section(leftover), comments
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -178,6 +186,7 @@ def main(argv: list[str] | None = None) -> int:
     session_dir = env.session_root / owner / repo / f"pr-{num}"
     session_dir.mkdir(parents=True, exist_ok=True)
     extra_comment = ""
+    doc_comments: list[dict] = []
 
     try:
         if args.fixtures is not None:
@@ -278,9 +287,9 @@ def main(argv: list[str] | None = None) -> int:
         claims = json.loads((session_dir / "claims.json").read_text())
 
         if args.fixtures is None:
-            section = _remediate(review_cfg, cfg, owner, repo, int(num),
-                                 session_dir / "workspace", session_dir,
-                                 snapshot, findings, post)
+            section, doc_comments = _remediate(review_cfg, cfg, owner, repo, int(num),
+                                               session_dir / "workspace", session_dir,
+                                               snapshot, findings, post)
             extra_comment = "\n\n".join(x for x in (extra_comment, section) if x)
 
         report = build_report(snapshot, claims, findings, answers, session_dir,
@@ -288,6 +297,18 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Report: {session_dir / 'report.md'}")
         print(f"Gate: {scores['gate']} | verification score "
               f"{scores['verification_score']:.0%} | risk {scores['business_risk']}")
+
+        import annotations
+        inline, orphans = annotations.split(
+            doc_comments + annotations.candidates(findings),
+            annotations.diff_lines(snapshot))
+        if orphans:
+            extra_comment = "\n\n".join(x for x in (extra_comment, _orphan_section(orphans)) if x)
+        if post and inline:
+            from gh import post_review
+            if post_review(owner, repo, int(num), commit_id=snapshot.get("head_sha", ""),
+                           comments=inline):
+                print(f"Posted {len(inline)} inline comment(s) as one review.")
 
         if post:
             body = build_comment(snapshot, claims, findings, answers,

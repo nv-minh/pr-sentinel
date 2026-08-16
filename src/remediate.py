@@ -13,7 +13,7 @@ from pathlib import Path
 
 from agent import READ_ONLY_TOOLS, record_usage
 from agent import run_structured as _default_runner
-from gh import post_inline_comment, run_gh
+from gh import run_gh
 
 FIXABLE_STATUSES = ("STALE", "WRONG", "FABRICATED")
 BRANCH_PREFIX = "pr-sentinel/docs"
@@ -106,24 +106,25 @@ def diff_block(patch: dict) -> str:
             f"{patch.get('why', '')}\n\n```diff\n{old}\n{new}\n```")
 
 
-def post_suggestions(owner: str, repo: str, n: int, patches: list[dict],
-                     snapshot: dict, *, gh=run_gh) -> tuple[list[dict], list[dict]]:
-    """Post suggestion comments for docs inside the diff.
+def suggestion_comments(patches: list[dict], snapshot: dict) -> tuple[list[dict], list[dict]]:
+    """Doc patches that can carry a ```suggestion block, as review comments.
 
-    Returns (posted, leftover) — leftover patches need the branch/comment path.
+    Returns `(comments, leftover)`. A comment is the `{path, line, body}` shape
+    annotations.py uses, so both sources go out in one review. GitHub only
+    accepts a suggestion on a line inside the diff, which is what leftover means.
     """
     in_diff = {f["filename"] for f in snapshot.get("files", [])}
     head_sha = snapshot.get("head_sha", "")
-    posted, leftover = [], []
+    comments, leftover = [], []
     for patch in patches:
         line = patch.get("line_hint")
-        if patch["path"] not in in_diff or not head_sha or not isinstance(line, int) or line < 1:
+        if (patch["path"] not in in_diff or not head_sha
+                or not isinstance(line, int) or line < 1):
             leftover.append(patch)
             continue
-        ok = post_inline_comment(owner, repo, n, commit_id=head_sha, path=patch["path"],
-                                 line=line, body=suggestion_body(patch), gh=gh)
-        (posted if ok else leftover).append(patch)
-    return posted, leftover
+        comments.append({"path": patch["path"], "line": line,
+                         "body": suggestion_body(patch)})
+    return comments, leftover
 
 
 def comment_section(patches: list[dict]) -> str:

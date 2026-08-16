@@ -2,8 +2,8 @@ import json
 
 from agent import AgentResult
 from remediate import (apply_to_workspace, comment_section, diff_block,
-                       draft_patches, fixable_docs, post_suggestions,
-                       suggestion_body)
+                       draft_patches, fixable_docs, suggestion_body,
+                       suggestion_comments)
 
 FINDINGS = {"docs": [
     {"path": "docs/api.md", "status": "WRONG", "what": "says GET, code does POST"},
@@ -58,27 +58,30 @@ def test_draft_patches_skips_the_model_when_nothing_is_broken(tmp_path):
     assert draft_patches({"docs": []}, {}, tmp_path, tmp_path, runner=runner) == []
 
 
-def test_post_suggestions_splits_by_diff_membership():
-    posted_calls = []
-
-    def fake_gh(args, **kw):
-        posted_calls.append(args)
-        return {}
-
-    outside = {**PATCH, "path": "docs/other.md"}
-    posted, leftover = post_suggestions("o", "r", 7, [PATCH, outside], SNAPSHOT, gh=fake_gh)
-    assert posted == [PATCH]
-    assert leftover == [outside]
-    assert len(posted_calls) == 1
+def test_suggestion_comments_anchors_a_doc_inside_the_diff():
+    comments, leftover = suggestion_comments([PATCH], SNAPSHOT)
+    assert comments == [{"path": "docs/api.md", "line": 12,
+                         "body": comments[0]["body"]}]
+    assert "```suggestion" in comments[0]["body"]
+    assert leftover == []
 
 
-def test_post_suggestions_falls_back_when_github_rejects_the_anchor():
-    def fake_gh(args, **kw):
-        raise RuntimeError("line is not part of the diff")
+def test_a_doc_outside_the_diff_is_leftover():
+    patch = {**PATCH, "path": "docs/elsewhere.md"}
+    comments, leftover = suggestion_comments([patch], SNAPSHOT)
+    assert comments == []
+    assert leftover == [patch]
 
-    posted, leftover = post_suggestions("o", "r", 7, [PATCH], SNAPSHOT, gh=fake_gh)
-    assert posted == []
-    assert leftover == [PATCH]
+
+def test_a_patch_without_a_usable_line_hint_is_leftover():
+    patch = {**PATCH, "line_hint": 0}
+    comments, leftover = suggestion_comments([patch], SNAPSHOT)
+    assert comments == [] and leftover == [patch]
+
+
+def test_no_head_sha_makes_everything_leftover():
+    comments, leftover = suggestion_comments([PATCH], {**SNAPSHOT, "head_sha": ""})
+    assert comments == [] and leftover == [PATCH]
 
 
 def test_apply_to_workspace_replaces_matching_text(tmp_path):
