@@ -16,6 +16,7 @@ Safety defaults, applied to every call:
 """
 import asyncio
 import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -85,6 +86,47 @@ def _options(*, schema, cwd, tools, model, max_turns, max_budget_usd, resume,
     )
 
 
+JSON_INSTRUCTION = """Reply with ONE JSON object and nothing else — no prose
+before or after it. It must validate against this JSON Schema:
+
+{schema}"""
+
+REPAIR_INSTRUCTION = """Your last reply could not be parsed: {error}
+
+Send the same answer again as ONE JSON object matching the schema you were
+given. No prose, no explanation — just the object."""
+
+
+def compat_prompt(prompt: str, schema: dict) -> str:
+    """The prompt for a provider that cannot enforce a schema server-side."""
+    return (f"{prompt}\n\n---\n\n"
+            + JSON_INSTRUCTION.format(schema=json.dumps(schema, indent=2)))
+
+
+def extract_json(text: str) -> dict:
+    """The JSON object in a free-text model reply.
+
+    Providers in prompt mode wrap the answer in fences, prose, or both, so this
+    takes the fenced block when there is one and the outermost braces otherwise.
+    """
+    if not (text or "").strip():
+        raise RuntimeError("agent returned an empty reply")
+    body = text.strip()
+    fence = re.search(r"```(?:json)?\s*(.+?)```", body, re.S)
+    if fence:
+        body = fence.group(1).strip()
+    start, end = body.find("{"), body.rfind("}")
+    if start == -1 or end <= start:
+        raise RuntimeError(f"agent reply contained no JSON object: {text[:200]!r}")
+    try:
+        data = json.loads(body[start:end + 1])
+    except json.JSONDecodeError as e:
+        raise RuntimeError(f"agent reply was not valid JSON: {e}") from e
+    if not isinstance(data, dict):
+        raise RuntimeError(f"agent reply was not a JSON object: {text[:200]!r}")
+    return data
+
+
 def run_structured(prompt: str, *, schema: dict, cwd: Path | str | None = None,
                    tools: list[str] | None = None, model: str | None = None,
                    max_turns: int | None = None,
@@ -92,7 +134,7 @@ def run_structured(prompt: str, *, schema: dict, cwd: Path | str | None = None,
                    resume: str | None = None,
                    system_prompt: str | None = None,
                    session_dir: Path | str | None = None,
-                   provider=None) -> AgentResult:
+                   provider: providers.Provider | None = None) -> AgentResult:
     """Run one agent turn-loop and return its schema-validated JSON answer.
 
     `tools=None` means no tools at all (a plain completion); pass
@@ -106,6 +148,10 @@ def run_structured(prompt: str, *, schema: dict, cwd: Path | str | None = None,
 
     if provider is None:
         provider = providers.BUILTIN["anthropic"]
+    # A provider with no server-side schema enforcement gets the schema folded
+    # into the prompt instead; the SDK never sees output_format for it.
+    if not provider.is_native():
+        prompt = compat_prompt(prompt, schema)
     options = _options(
         schema=schema if provider.is_native() else None,
         cwd=cwd, tools=tools, model=model, max_turns=max_turns,
@@ -120,9 +166,27 @@ def run_structured(prompt: str, *, schema: dict, cwd: Path | str | None = None,
     except ClaudeSDKError as e:
         raise RuntimeError(f"Claude Agent SDK failed: {e}") from e
 
-    if message.structured_output is None:
-        raise RuntimeError("agent returned no structured output")
-    data = message.structured_output
+    if provider.is_native():
+        if message.structured_output is None:
+            raise RuntimeError("agent returned no structured output")
+        data = message.structured_output
+    else:
+        try:
+            data = extract_json(message.result or "")
+        except RuntimeError as first:
+            # One repair turn, resuming the same session: the model already did
+            # the work, it just wrote the answer the wrong way.
+            repair = _options(
+                schema=None, cwd=cwd, tools=None, model=model, max_turns=2,
+                max_budget_usd=None, resume=message.session_id,
+                system_prompt=system_prompt, session_dir=session_dir,
+                env=providers.agent_env(provider))
+            try:
+                message = asyncio.run(_query(
+                    REPAIR_INSTRUCTION.format(error=first), repair))
+            except ClaudeSDKError as e:
+                raise RuntimeError(f"Claude Agent SDK failed: {e}") from e
+            data = extract_json(message.result or "")
 
     return AgentResult(
         data=data,

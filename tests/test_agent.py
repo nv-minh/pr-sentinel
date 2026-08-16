@@ -124,3 +124,86 @@ def test_no_session_dir_means_no_transcript_store(monkeypatch):
     seen = _capture(monkeypatch)
     agent.run_structured("hi", schema={"type": "object"})
     assert seen["options"].session_store is None
+
+
+def test_extract_json_reads_a_bare_object():
+    assert agent.extract_json('{"a": 1}') == {"a": 1}
+
+
+def test_extract_json_reads_a_fenced_object():
+    assert agent.extract_json('```json\n{"a": 1}\n```') == {"a": 1}
+
+
+def test_extract_json_ignores_surrounding_prose():
+    text = 'Sure — here is the result:\n\n```\n{"a": [1, 2]}\n```\n\nHope that helps.'
+    assert agent.extract_json(text) == {"a": [1, 2]}
+
+
+def test_extract_json_rejects_an_empty_reply():
+    with pytest.raises(RuntimeError, match="empty reply"):
+        agent.extract_json("")
+
+
+def test_extract_json_rejects_prose_without_json():
+    with pytest.raises(RuntimeError, match="no JSON object"):
+        agent.extract_json("I could not do that.")
+
+
+def test_extract_json_rejects_a_json_array():
+    with pytest.raises(RuntimeError, match="no JSON object"):
+        agent.extract_json("[1, 2, 3]")
+
+
+def test_extract_json_reports_a_syntax_error():
+    with pytest.raises(RuntimeError, match="not valid JSON"):
+        agent.extract_json('{"a": 1,}')
+
+
+def test_compat_prompt_carries_the_schema():
+    out = agent.compat_prompt("do the thing", {"type": "object"})
+    assert out.startswith("do the thing")
+    assert '"type": "object"' in out
+    assert "ONE JSON object" in out
+
+
+def test_prompt_mode_parses_the_reply(monkeypatch):
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "k")
+    seen = _capture(monkeypatch, _fake_result(
+        structured_output=None, result='```json\n{"claims": []}\n```'))
+    result = agent.run_structured("extract", schema={"type": "object"},
+                                  provider=providers.build("deepseek", None))
+    assert result.data == {"claims": []}
+    assert seen["options"].output_format is None
+    assert "ONE JSON object" in seen["prompt"]
+
+
+def test_prompt_mode_repairs_a_bad_reply_by_resuming(monkeypatch):
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "k")
+    calls = []
+
+    async def fake_query(prompt, options):
+        calls.append((prompt, options))
+        if len(calls) == 1:
+            return _fake_result(structured_output=None, result="no idea, sorry")
+        return _fake_result(structured_output=None, result='{"claims": []}',
+                            session_id="sess-2")
+
+    monkeypatch.setattr(agent, "_query", fake_query)
+    result = agent.run_structured("extract", schema={"type": "object"},
+                                  tools=["Read"],
+                                  provider=providers.build("deepseek", None))
+    assert result.data == {"claims": []}
+    assert len(calls) == 2
+    repair_prompt, repair_options = calls[1]
+    assert repair_options.resume == "sess-1"    # resumes, does not re-explore
+    assert repair_options.max_turns == 2
+    assert repair_options.allowed_tools == []   # nothing left to read
+    assert "could not be parsed" in repair_prompt
+
+
+def test_prompt_mode_gives_up_after_one_repair(monkeypatch):
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "k")
+    _capture(monkeypatch, _fake_result(structured_output=None, result="still prose"))
+    with pytest.raises(RuntimeError, match="no JSON object"):
+        agent.run_structured("extract", schema={"type": "object"},
+                             provider=providers.build("deepseek", None))
