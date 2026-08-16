@@ -1,4 +1,7 @@
-from tickets import find_keys
+import json
+
+import jira_client
+from tickets import fetch_tickets, find_keys
 
 
 def _snap(*, title="", body="", head=""):
@@ -81,3 +84,83 @@ def test_no_sources_yields_nothing():
 def test_an_empty_allowlist_still_honours_browse_links():
     snap = _snap(title="ABC-1: work", body="https://x.atlassian.net/browse/ABC-2")
     assert find_keys(snap, []) == ["ABC-2"]
+
+
+JIRA_CFG = {"projects": ["ABC"], "comment_result": False}
+CONFIGURED = jira_client.JiraConfig(base_url="https://x.atlassian.net", email="e", token="t")
+UNCONFIGURED = jira_client.JiraConfig(base_url="", email="", token="")
+
+
+def _issue(key):
+    return {"key": key, "summary": f"summary {key}", "description": "req text",
+            "status": "In Progress", "type": "Story", "priority": "High",
+            "labels": [], "url": f"https://x.atlassian.net/browse/{key}"}
+
+
+def _fetcher(available, calls=None):
+    def get_issue(cfg, key, *, opener=None):
+        if calls is not None:
+            calls.append(key)
+        return _issue(key) if key in available else None
+    return get_issue
+
+
+def test_fetch_writes_the_ticket_artifact(tmp_path, monkeypatch):
+    monkeypatch.setattr(jira_client, "get_issue", _fetcher({"ABC-1"}))
+    snap = {"title": "ABC-1: work", "body": "", "head": ""}
+    result = fetch_tickets(snap, tmp_path, JIRA_CFG, config=CONFIGURED)
+    assert result["primary"] == "ABC-1"
+    assert result["tickets"][0]["summary"] == "summary ABC-1"
+    assert result["skipped"] == ""
+    assert json.loads((tmp_path / "ticket.json").read_text()) == result
+
+
+def test_fetch_without_jira_configured_is_skipped(tmp_path):
+    snap = {"title": "ABC-1: work", "body": "", "head": ""}
+    result = fetch_tickets(snap, tmp_path, JIRA_CFG, config=UNCONFIGURED)
+    assert result == {"primary": "", "tickets": [],
+                      "skipped": "Jira is not configured (JIRA_BASE_URL, "
+                                 "JIRA_EMAIL, JIRA_API_TOKEN)"}
+
+
+def test_fetch_without_any_key_is_skipped(tmp_path, monkeypatch):
+    monkeypatch.setattr(jira_client, "get_issue", _fetcher(set()))
+    snap = {"title": "just work", "body": "", "head": "fix"}
+    result = fetch_tickets(snap, tmp_path, JIRA_CFG, config=CONFIGURED)
+    assert result["tickets"] == []
+    assert "no ticket key" in result["skipped"]
+
+
+def test_an_unreachable_ticket_is_recorded_not_raised(tmp_path, monkeypatch):
+    monkeypatch.setattr(jira_client, "get_issue", _fetcher(set()))
+    snap = {"title": "ABC-9: work", "body": "", "head": ""}
+    result = fetch_tickets(snap, tmp_path, JIRA_CFG, config=CONFIGURED)
+    assert result["tickets"] == []
+    assert "ABC-9" in result["skipped"]
+
+
+def test_the_primary_is_the_first_key_that_actually_resolved(tmp_path, monkeypatch):
+    monkeypatch.setattr(jira_client, "get_issue", _fetcher({"ABC-2"}))
+    snap = {"title": "", "head": "",
+            "body": "https://x.atlassian.net/browse/ABC-1 "
+                    "https://x.atlassian.net/browse/ABC-2"}
+    result = fetch_tickets(snap, tmp_path, JIRA_CFG, config=CONFIGURED)
+    assert result["primary"] == "ABC-2"
+    assert result["skipped"] == ""
+
+
+def test_at_most_three_tickets_are_fetched(tmp_path, monkeypatch):
+    calls = []
+    monkeypatch.setattr(jira_client, "get_issue", _fetcher({f"ABC-{i}" for i in range(1, 8)}, calls))
+    body = " ".join(f"https://x.atlassian.net/browse/ABC-{i}" for i in range(1, 8))
+    fetch_tickets({"title": "", "body": body, "head": ""}, tmp_path, JIRA_CFG,
+                  config=CONFIGURED)
+    assert len(calls) == 3
+
+
+def test_fetch_uses_the_configured_project_allowlist(tmp_path, monkeypatch):
+    calls = []
+    monkeypatch.setattr(jira_client, "get_issue", _fetcher({"ZZZ-1"}, calls))
+    snap = {"title": "ZZZ-1: work", "body": "", "head": ""}
+    fetch_tickets(snap, tmp_path, {"projects": ["ZZZ"]}, config=CONFIGURED)
+    assert calls == ["ZZZ-1"]

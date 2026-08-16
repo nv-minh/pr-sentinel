@@ -11,7 +11,11 @@ is configured in `jira.projects`, while a key inside a browse URL is
 unambiguous and needs no allowlist — and bare keys loose in the body are not a
 source at all.
 """
+import json
 import re
+from pathlib import Path
+
+import jira_client
 
 MAX_TICKETS = 3
 
@@ -47,3 +51,46 @@ def find_keys(snapshot: dict, projects: list[str]) -> list[str]:
             add(match.group(1))
 
     return keys[:MAX_TICKETS]
+
+
+NOT_CONFIGURED = ("Jira is not configured (JIRA_BASE_URL, JIRA_EMAIL, "
+                  "JIRA_API_TOKEN)")
+
+
+def fetch_tickets(snapshot: dict, session_dir: Path, jira_cfg: dict, *,
+                  config=None, opener=None) -> dict:
+    """Fetch this PR's tickets once and persist ticket.json. Never raises.
+
+    Returns `{"primary", "tickets", "skipped"}`; `skipped` is a sentence for the
+    report and is non-empty exactly when nothing was fetched.
+    """
+    cfg = config if config is not None else jira_client.load_config()
+    result = {"primary": "", "tickets": [], "skipped": ""}
+
+    if not cfg.configured():
+        result["skipped"] = NOT_CONFIGURED
+    else:
+        keys = find_keys(snapshot, list(jira_cfg.get("projects") or []))
+        if not keys:
+            result["skipped"] = ("no ticket key in the branch name, PR title or a "
+                                 "browse link in the body")
+        else:
+            kwargs = {"opener": opener} if opener is not None else {}
+            missed = []
+            for key in keys:
+                issue = jira_client.get_issue(cfg, key, **kwargs)
+                if issue is None:
+                    missed.append(key)
+                else:
+                    result["tickets"].append(issue)
+            if result["tickets"]:
+                result["primary"] = result["tickets"][0]["key"]
+            else:
+                result["skipped"] = (f"could not read {', '.join(missed)} — missing, "
+                                     "unreachable or not permitted")
+
+    session_dir.mkdir(parents=True, exist_ok=True)
+    (session_dir / "ticket.json").write_text(json.dumps(result, indent=2))
+    if result["skipped"]:
+        print(f"[tickets] no requirement context: {result['skipped']}")
+    return result
