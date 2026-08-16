@@ -22,8 +22,10 @@ request and reports what the code actually does — every verdict carrying a
 | **Merge gate** | Verification score, doc drift and business risk → `pass / warn / fail`, wired to a CI exit code |
 
 Everything else follows from those: doc fixes come back as GitHub suggestions,
-an empty PR body gets a drafted description, and replies on the PR are answered
-by resuming the previous agent session instead of re-reviewing from scratch.
+an empty PR body gets a drafted description, replies on the PR are answered by
+resuming the previous agent session instead of re-reviewing from scratch, the
+review can be judged against the Jira ticket the PR is about, and how much a
+review costs is routed by the risk of what it touches.
 
 ### Where the findings land
 
@@ -65,28 +67,41 @@ PYTHONPATH=src python -m src.run owner/repo 123 --reply      # answer new replie
 ```
 
 Results land in `sessions/<owner>/<repo>/pr-<n>/`: `findings.json`, `score.json`,
-`usage.json` (what the review cost), `report.md`, and `transcripts/` — the agent
-conversation, kept so a later `--reply` resumes it instead of re-reviewing. Every
-phase is skipped when its result already exists, so a re-run resumes rather than
-paying twice; `--force` re-runs them.
+`ticket.json` (the requirement context, or why there is none), `neutralized.json`
+(instruction-shaped text stripped from prompts), `poc.json` (generated failing
+tests), `usage.json` (what the review cost), `report.md`, and `transcripts/` —
+the agent conversation, kept so a later `--reply` resumes it instead of
+re-reviewing; if the transcript is gone, the follow-up runs stateless, carrying
+the previous findings forward. Every phase is skipped when its result already
+exists, so a re-run resumes rather than paying twice; `--force` re-runs them.
 
 ## How it runs
 
 1. **Snapshot** — PR metadata, files, commits and review threads via the GitHub
-   REST + GraphQL APIs. Lockfiles, build output and binary assets are pruned from
-   the context here, and every removal is recorded in the report.
-2. **Describe** — if the body is empty or too thin to claim anything, a
+   REST + GraphQL APIs. Lockfiles, build output, binary assets and reformat-only
+   patches (a Prettier pass that changes no behaviour) are pruned from the
+   context here, and every removal is recorded in the report.
+2. **Tier** — before any model call, the PR is classified as trivial / standard /
+   critical from the paths it touches, which picks the model, reasoning effort,
+   turn limit and tool set for the run (see "Review budget by tier").
+3. **Ticket** — the Jira ticket the PR is about, if any, is fetched once and
+   cached as `ticket.json`; its text becomes the requirement `impact` is judged
+   against. Unconfigured Jira simply records why and moves on.
+4. **Describe** — if the body is empty or too thin to claim anything, a
    description is drafted from the diff (proposed in the comment; only rewritten
    on the PR when `auto_describe` is on).
-3. **Claims** — the description is split into individually checkable statements.
-4. **Verify** — a read-only Claude agent works inside a disposable clone of the
+5. **Claims** — the description is split into individually checkable statements.
+6. **Verify** — a read-only Claude agent works inside a disposable clone of the
    PR head and fills in the findings schema: claims, docs, impact, callers
    outside the diff, contracts, tests.
-5. **Score** — the findings become a merge decision.
-6. **Ask** — anything the agent could not prove becomes a question of at most 20
+7. **Score** — the findings become a merge decision.
+8. **Ask** — anything the agent could not prove becomes a question of at most 20
    words, for a human.
-7. **Report** — one comment on the PR, updated in place, plus doc suggestions,
-   labels, a check run and an optional Slack ping.
+9. **Report** — **one** review event on the PR carrying every anchorable inline
+   comment (doc fixes as one-click suggestions, findings on the lines they are
+   about), plus a summary comment — updated in place — for everything that could
+   not be anchored, generated failing tests for `BROKEN` findings, labels, a
+   check run and optional Slack and Jira pings.
 
 ## CI gate
 
@@ -170,10 +185,13 @@ This workstream never changes a ticket's status, fields or description.
 PRS_SESSION_ROOT=sessions python -m web.server     # http://127.0.0.1:6789
 ```
 
-A read-only ledger over `sessions/` — no database. Repo list → repo detail (KPIs,
+A ledger over `sessions/` — no database. Repo list → repo detail (KPIs,
 merge-decision band, open PRs) → PR detail (Claims / Docs / Impact / Callers /
 Contracts / Tests / Threads / Confirm / Context). Reviews started from the
 dashboard run in the background; the page follows the log until they finish.
+A provider panel shows which gateway is active, whether its key is present, and
+can switch providers (the switch rewrites the one `provider:` line in
+`prsentinel.yml` — tokens never enter the file).
 
 Demo data ships in `sessions/demo/app/` — open
 `http://127.0.0.1:6789/repos/demo/app/pr/8` for a blocked review.
@@ -240,13 +258,15 @@ dashboard shows whether a key is present, never the key.
 | `JIRA_EMAIL` | — | Account the API token belongs to |
 | `JIRA_API_TOKEN` | — | Jira API token (never stored in `prsentinel.yml`) |
 
-`prsentinel.yml` holds the rest. Three settings write outside the review comment
-and are **off by default**: `auto_describe` (rewrites the PR body),
-`docs_fix_pr` (opens a follow-up PR with doc fixes), and `inline_suggestions`
-(suggestion blocks on docs inside the diff — this one is on).
+`prsentinel.yml` holds the rest. Four settings write outside the review comment
+and three of them are **off by default**: `auto_describe` (rewrites the PR body),
+`docs_fix_pr` (opens a follow-up PR with doc fixes), `jira.comment_result`
+(posts the verdict to the Jira ticket), and `inline_suggestions` (suggestion
+blocks on docs inside the diff — this one is on).
 
-Cost control: `max_budget_usd` hard-stops a verify run, diff pruning keeps
-generated files out of context, and `--reply` resumes the previous session
+Cost control: `tiered_budget` routes each review's effort by what it touches,
+`max_budget_usd` hard-stops a verify run, diff pruning keeps generated and
+reformat-only files out of context, and `--reply` resumes the previous session
 instead of starting over. `usage.json` records what each phase actually cost.
 
 ### Review budget by tier
@@ -269,10 +289,27 @@ default.
 ## Safety
 
 The verify agent gets `Read`, `Grep` and `Glob` and nothing else — no writes, no
-network, no shell unless `allow_bash` is set. It runs in a throwaway clone with
-`setting_sources=[]`, so the host machine's `CLAUDE.md`, settings and skills
-never reach the review. Findings come back through a JSON schema, so the agent
-never needs write access to report.
+network. `Bash` is off by default and enabled in exactly two ways: the
+`allow_bash` setting, or the critical tier when `tiered_budget` is on (the
+default) and the PR touches `gate.sensitive_areas` or a contract file. The agent
+runs in a throwaway clone with `setting_sources=[]`, so the host machine's
+`CLAUDE.md`, settings and skills never reach the review. Findings come back
+through a JSON schema, so the agent never needs write access to report.
+
+Text nobody on our side wrote — PR title and body, review threads, replies,
+commit messages, Jira descriptions — enters every prompt inside delimited
+`<<<UNTRUSTED ...>>>` blocks, and the system prompt states that a block's
+contents are evidence to verify, never instruction to follow; an instruction
+found there is itself reported as a finding. Instruction-shaped phrases
+("ignore previous instructions", fake `<system>` tags) are additionally
+stripped, and what was stripped is recorded in `neutralized.json` and surfaced
+in the report — never dropped silently. The structural control is the block plus
+the clause; the phrase list is defence in depth and is expected to be evadable
+by rephrasing.
+
+Outbound writes are deterministic code, never the agent: the review comment, the
+batched inline review, labels and check runs are posted by Python modules after
+scoring, so nothing a PR author wrote can steer them.
 
 ## Tests
 

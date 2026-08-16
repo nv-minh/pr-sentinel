@@ -31,14 +31,14 @@ tiered_budget: true
 allow_bash: false           # let the agent run git/grep inside the workspace clone
 max_turns: 60
 max_budget_usd: null        # e.g. 2.0 to hard-stop an expensive verify run
+poc_tests: true             # a failing test for each BROKEN finding (only runs when
+                            # a review finds one, so a clean PR pays nothing)
+max_inline_comments: 20     # per review; anything past this goes in the summary
 
 # Actions that write outside the review comment — opt-in on purpose
 auto_describe: false        # rewrite an empty PR body instead of proposing one
 docs_fix_pr: false          # open a follow-up PR carrying the doc fixes
 inline_suggestions: true    # suggestion blocks for docs inside the diff
-poc_tests: true             # a failing test for each BROKEN finding (only runs when
-                            # a review finds one, so a clean PR pays nothing)
-max_inline_comments: 20     # per review; anything past this goes in the summary
 
 # Jira. Tokens are NEVER stored here — set JIRA_BASE_URL, JIRA_EMAIL and
 # JIRA_API_TOKEN in .env. `projects` is the allowlist that stops UTF-8 and
