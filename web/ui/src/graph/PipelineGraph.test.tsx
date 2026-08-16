@@ -58,10 +58,30 @@ describe('PipelineGraph', () => {
   it('mirrors every phase in a text equivalent for screen readers', () => {
     render(<PipelineGraph pipeline={PIPELINE} selected={null} onSelect={() => {}} />)
     const list = container.querySelector('[data-testid="pipeline-text"]')!
+    expect(list.querySelectorAll('[data-phase]')).toHaveLength(PIPELINE.nodes.length)
     expect(list.textContent).toContain('Snapshot')
     expect(list.textContent).toContain('done')
+    expect(list.textContent).toContain('Claims')
     expect(list.textContent).toContain('Verify')
     expect(list.textContent).toContain('running')
+  })
+
+  it('renders a status glyph alongside the word in the text equivalent, not colour alone', () => {
+    render(<PipelineGraph pipeline={PIPELINE} selected={null} onSelect={() => {}} />)
+    const list = container.querySelector('[data-testid="pipeline-text"]')!
+    // 'done' -> tone 'pass' -> glyph '✓'; 'running' -> tone 'warn' -> glyph '!'
+    expect(list.textContent).toContain('✓')
+    expect(list.textContent).toContain('!')
+    // the words must still be present and intact alongside the glyphs
+    expect(list.textContent).toContain('done')
+    expect(list.textContent).toContain('running')
+  })
+
+  it('keeps the canvas free of focusable elements while it is aria-hidden', () => {
+    render(<PipelineGraph pipeline={PIPELINE} selected={null} onSelect={() => {}} />)
+    const hidden = container.querySelector('[aria-hidden="true"]')!
+    const focusable = hidden.querySelectorAll('[tabindex="0"], button')
+    expect(focusable).toHaveLength(0)
   })
 
   it('lets the text equivalent select a phase, so the graph is not the only way in', () => {

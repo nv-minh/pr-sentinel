@@ -1,10 +1,10 @@
 import { useMemo } from 'react'
 import {
-  Background, Controls, MiniMap, ReactFlow, type Edge, type Node,
+  Background, MiniMap, ReactFlow, type Edge, type Node,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import type { Pipeline } from '../api'
-import { TONE_COLOR } from '../status'
+import { GLYPH, TONE_COLOR } from '../status'
 import { useTheme } from '../theme'
 import PhaseNode from './PhaseNode'
 import { POSITION, STATUS_TONE, STATUS_WORD } from './layout'
@@ -75,13 +75,13 @@ export default function PipelineGraph({
           fitViewOptions={{ padding: 0.15 }}
           nodesDraggable={false}
           nodesConnectable={false}
+          nodesFocusable={false}
           edgesFocusable={false}
           onNodeClick={(_, node) => onSelect(node.id)}
           minZoom={0.4}
           maxZoom={1.4}
         >
           <Background gap={18} size={1} color="var(--hairline)" />
-          <Controls showInteractive={false} />
           <MiniMap pannable zoomable
                    nodeColor={(n) => TONE_COLOR[STATUS_TONE[(n.data as { status: Pipeline['nodes'][number]['status'] }).status]]} />
         </ReactFlow>
@@ -103,7 +103,7 @@ export default function PipelineGraph({
             >
               {node.label}{' '}
               <span style={{ color: TONE_COLOR[STATUS_TONE[node.status]] }}>
-                {STATUS_WORD[node.status]}
+                {GLYPH[STATUS_TONE[node.status]]} {STATUS_WORD[node.status]}
               </span>
             </button>
           </li>
