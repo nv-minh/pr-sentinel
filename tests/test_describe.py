@@ -3,8 +3,8 @@ import json
 import pytest
 
 from agent import AgentResult
-from describe import (build_prompt, comment_section, draft_description,
-                      needs_description)
+from describe import (SYSTEM_PROMPT, build_prompt, comment_section,
+                      draft_description, needs_description)
 
 SNAPSHOT = {"title": "Add checkout", "body": "", "files": [
     {"filename": "src/checkout.py", "additions": 40, "deletions": 2,
@@ -50,3 +50,12 @@ def test_comment_section_is_collapsible():
     section = comment_section(DRAFT)
     assert "<details>" in section
     assert "Adds checkout." in section
+
+
+def test_the_diff_is_wrapped_as_untrusted():
+    prompt = build_prompt(SNAPSHOT)
+    assert "<<<UNTRUSTED diff>>>" in prompt
+
+
+def test_the_describe_system_prompt_explains_untrusted_blocks():
+    assert "<<<UNTRUSTED" in SYSTEM_PROMPT

@@ -7,6 +7,7 @@ the kind of thing a bot should need permission for.
 import json
 from pathlib import Path
 
+import untrusted
 from agent import record_usage
 from agent import run_structured as _default_runner
 
@@ -25,6 +26,7 @@ SYSTEM_PROMPT = (
     "You write pull request descriptions from the actual diff. You describe only "
     "what the code shows — no speculation about intent, no invented ticket "
     "numbers, no praise. Plain, specific engineering prose."
+    + untrusted.SYSTEM_CLAUSE
 )
 
 TEMPLATE = """## What
@@ -49,7 +51,7 @@ def needs_description(snapshot: dict, min_chars: int = MIN_BODY_CHARS) -> bool:
     return len(body) < min_chars
 
 
-def build_prompt(snapshot: dict) -> str:
+def build_prompt(snapshot: dict, found: list[str] | None = None) -> str:
     files = [f"- {f['filename']} (+{f.get('additions', 0)}/-{f.get('deletions', 0)})"
              for f in snapshot.get("files", [])]
     commits = [f"- {c['message'].splitlines()[0]}" for c in snapshot.get("commits", [])
@@ -61,17 +63,19 @@ def build_prompt(snapshot: dict) -> str:
     return f"""
 Write a pull request description for this change.
 
-Title: {snapshot.get('title', '')}
-Existing body: {snapshot.get('body') or '(empty)'}
+Title:
+{untrusted.block("PR title", snapshot.get('title', ''), found=found)}
+Existing body:
+{untrusted.block("PR body", snapshot.get('body') or '(empty)', found=found)}
 
 Commits:
-{chr(10).join(commits) if commits else '- (none)'}
+{untrusted.block("Commit messages", chr(10).join(commits) if commits else '- (none)', found=found)}
 
 Files changed:
 {chr(10).join(files) if files else '- (none)'}
 
 Diff:
-{chr(10).join(patches) if patches else '(no textual diff available)'}
+{untrusted.block("Diff", chr(10).join(patches) if patches else '(no textual diff available)', found=found)}
 
 Follow this template exactly:
 
@@ -82,8 +86,9 @@ Follow this template exactly:
 def draft_description(snapshot: dict, cfg: dict, session_dir: Path,
                       runner=_default_runner) -> dict:
     """Generate a description draft. Writes description.json, returns it."""
+    found: list[str] = []
     result = runner(
-        build_prompt(snapshot),
+        build_prompt(snapshot, found=found),
         schema=DESCRIPTION_SCHEMA,
         model=cfg.get("claims_model"),
         system_prompt=SYSTEM_PROMPT,
@@ -97,6 +102,7 @@ def draft_description(snapshot: dict, cfg: dict, session_dir: Path,
     session_dir.mkdir(parents=True, exist_ok=True)
     (session_dir / "description.json").write_text(json.dumps(draft, indent=2))
     record_usage(session_dir, "describe", result)
+    untrusted.record_neutralized(session_dir, "describe", found)
     return draft
 
 

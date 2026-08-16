@@ -3,7 +3,7 @@ import json
 import pytest
 
 from agent import AgentResult
-from claims import build_prompt, extract_claims
+from claims import SYSTEM_PROMPT, build_prompt, extract_claims
 
 RESPONSE = {"claims": [
     {"id": "C1", "text": "Adds checkout", "category": "feature",
@@ -65,3 +65,13 @@ def test_build_prompt_marks_empty_body():
     prompt = build_prompt({"title": "t", "body": "", "files": []})
     assert "(empty)" in prompt
     assert "- (none)" in prompt
+
+
+def test_the_description_is_wrapped_as_untrusted():
+    prompt = build_prompt(SNAPSHOT)
+    assert "<<<UNTRUSTED pr-description>>>" in prompt
+    assert "<<<UNTRUSTED pr-title>>>" in prompt
+
+
+def test_the_claims_system_prompt_explains_untrusted_blocks():
+    assert "<<<UNTRUSTED" in SYSTEM_PROMPT

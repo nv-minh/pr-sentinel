@@ -2,6 +2,7 @@
 import json
 from pathlib import Path
 
+import untrusted
 from agent import record_usage
 from agent import run_structured as _default_runner
 
@@ -33,6 +34,7 @@ SYSTEM_PROMPT = (
     "against source code. A claim is verifiable when reading the diff or the "
     "repository can prove or disprove it. Skip pleasantries, TODOs and open "
     "questions. Return an empty list when the description claims nothing."
+    + untrusted.SYSTEM_CLAUSE
 )
 
 
@@ -48,21 +50,23 @@ def _validate(data: dict) -> list[dict]:
     return claims
 
 
-def build_prompt(snapshot: dict) -> str:
+def build_prompt(snapshot: dict, found: list[str] | None = None) -> str:
     files = [f["filename"] for f in snapshot.get("files", [])]
     listed = "\n".join(f"- {f}" for f in files) or "- (none)"
     return (
-        f"Title: {snapshot['title']}\n\n"
-        f"Description:\n{snapshot['body'] or '(empty)'}\n\n"
-        f"Files changed:\n{listed}"
+        "Title:\n" + untrusted.block("PR title", snapshot["title"], found=found) + "\n\n"
+        "Description:\n"
+        + untrusted.block("PR description", snapshot["body"] or "(empty)", found=found)
+        + f"\n\nFiles changed:\n{listed}"
     )
 
 
 def extract_claims(snapshot: dict, cfg: dict, session_dir: Path,
                    runner=_default_runner) -> list[dict]:
     """Extract claims from the PR description. Writes claims.json, returns the list."""
+    found: list[str] = []
     result = runner(
-        build_prompt(snapshot),
+        build_prompt(snapshot, found=found),
         schema=CLAIMS_SCHEMA,
         model=cfg.get("claims_model"),
         system_prompt=SYSTEM_PROMPT,
@@ -74,4 +78,5 @@ def extract_claims(snapshot: dict, cfg: dict, session_dir: Path,
     session_dir.mkdir(parents=True, exist_ok=True)
     (session_dir / "claims.json").write_text(json.dumps(claims, indent=2))
     record_usage(session_dir, "claims", result)
+    untrusted.record_neutralized(session_dir, "claims", found)
     return claims

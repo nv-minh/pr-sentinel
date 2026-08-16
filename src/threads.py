@@ -7,6 +7,7 @@ agent by *resuming its previous session*, so it only pays for the delta.
 import json
 from pathlib import Path
 
+import untrusted
 from agent import BASH_TOOLS, READ_ONLY_TOOLS, record_usage
 from agent import run_structured as _default_runner
 from gh import run_gh
@@ -123,11 +124,13 @@ def can_resume(session_dir: Path, session_id: str) -> bool:
 
 
 def build_followup_prompt(replies: list[dict], new_commits: list[dict],
-                          previous_findings: dict | None = None) -> str:
+                          previous_findings: dict | None = None,
+                          found: list[str] | None = None) -> str:
     quoted = "\n\n".join(
         f"[{r['source']}] {r['author']}"
-        + (f" on {r['path']}" if r.get("path") else "") + f":\n{r['body']}"
-        for r in replies)
+        + (f" on {r['path']}" if r.get("path") else "") + ":\n"
+        + untrusted.block(f"Reply {i}", r["body"], found=found)
+        for i, r in enumerate(replies, 1))
     commits = "\n".join(f"- {c['sha'][:8]} {c['message'].splitlines()[0]}"
                         for c in new_commits if c.get("message")) or "- (no new commits)"
     carried = ""
@@ -136,7 +139,9 @@ def build_followup_prompt(replies: list[dict], new_commits: list[dict],
                    "review, carried over because the session could not be "
                    "resumed. Treat them as your prior conclusions, re-check the "
                    "ones these replies and commits affect, and keep the rest:\n"
-                   f"{json.dumps(previous_findings, indent=2)}\n")
+                   + untrusted.block("Previous findings",
+                                     json.dumps(previous_findings, indent=2),
+                                     found=found) + "\n")
     return f"""
 The author replied to your review. The workspace is now at the latest commit.
 
@@ -172,8 +177,10 @@ def run_followup(cfg: dict, workspace: Path, session_dir: Path, snapshot: dict,
     print(f"[threads] follow-up: {mode}")
 
     tools = BASH_TOOLS if cfg.get("allow_bash") else READ_ONLY_TOOLS
+    found: list[str] = []
     result = runner(
-        build_followup_prompt(replies, new_commits, previous_findings=carried),
+        build_followup_prompt(replies, new_commits, previous_findings=carried,
+                              found=found),
         schema=FINDINGS_SCHEMA,
         cwd=workspace,
         tools=tools,
@@ -192,4 +199,5 @@ def run_followup(cfg: dict, workspace: Path, session_dir: Path, snapshot: dict,
     (session_dir / "verify-meta.json").write_text(json.dumps(
         {"session_id": result.session_id, "head_sha": snapshot.get("head_sha", "")}, indent=2))
     record_usage(session_dir, "followup", result)
+    untrusted.record_neutralized(session_dir, "followup", found)
     return findings

@@ -154,18 +154,22 @@ def _requirement_section(ticket: dict | None) -> str:
 
 
 def build_verify_prompt(snapshot: dict, claims: list[dict],
-                        ticket: dict | None = None) -> str:
+                        ticket: dict | None = None,
+                        found: list[str] | None = None) -> str:
     """Instruct the agent to verify the PR from inside the workspace."""
     files = [f"- {f['filename']} (+{f.get('additions', 0)}/-{f.get('deletions', 0)})"
              for f in snapshot["files"]]
-    threads = [f"- (resolved={t['resolved']}) {t.get('author')}: {t.get('body', '')[:200]}"
-               for t in snapshot.get("threads", [])]
+    threads = [f"- (resolved={t['resolved']}) {t.get('author')}:\n"
+               + untrusted.block(f"Thread {i}", (t.get("body") or "")[:200], found=found)
+               for i, t in enumerate(snapshot.get("threads", []), 1)]
     pruned = [f"- {p['filename']} ({p['reason']})" for p in snapshot.get("pruned", [])]
     return f"""
 You are in a checkout of PR #{snapshot['pr']} of {snapshot['owner']}/{snapshot['repo']}.
 
-PR title: {snapshot['title']}
-PR body: {snapshot['body'] or '(empty)'}
+PR title:
+{untrusted.block("PR title", snapshot['title'], found=found)}
+PR body:
+{untrusted.block("PR body", snapshot['body'] or '(empty)', found=found)}
 Base: {snapshot['base']} → Head: {snapshot['head']}
 
 Files changed:
@@ -245,8 +249,10 @@ def run_verify(cfg: dict, workspace: Path, session_dir: Path, snapshot: dict,
     """Run the deep-dive agent and persist findings.json. Returns the findings."""
     session_dir.mkdir(parents=True, exist_ok=True)
     tools = BASH_TOOLS if cfg.get("allow_bash") else READ_ONLY_TOOLS
+    found: list[str] = []
+    prompt = build_verify_prompt(snapshot, claims, ticket, found=found)
     result = runner(
-        build_verify_prompt(snapshot, claims, ticket),
+        prompt,
         schema=FINDINGS_SCHEMA,
         cwd=workspace,
         tools=tools,
@@ -264,4 +270,5 @@ def run_verify(cfg: dict, workspace: Path, session_dir: Path, snapshot: dict,
         {"session_id": result.session_id, "head_sha": snapshot.get("head_sha", "")},
         indent=2))
     record_usage(session_dir, "verify", result)
+    untrusted.record_neutralized(session_dir, "verify", found)
     return findings
