@@ -224,3 +224,97 @@ def test_open_prs_reviewing_with_existing_findings(tmp_path):
         gh=lambda args, **kw: [{"number": 7, "title": "T7", "draft": False}])
     assert rows[0]["status"] == "reviewing"
     assert rows[0]["pid"] == os.getpid()
+
+
+# ------------------------------------------------------------------- pipeline graph
+
+def _session(tmp_path, **files):
+    d = tmp_path / "demo" / "app" / "pr-8"
+    d.mkdir(parents=True)
+    for name, body in files.items():
+        name = name.replace("__", ".")
+        (d / name).write_text(body if isinstance(body, str) else json.dumps(body))
+    return d
+
+
+def _by_id(graph):
+    return {n["id"]: n for n in graph["nodes"]}
+
+
+def test_graph_is_none_without_a_session(tmp_path):
+    assert metrics.pipeline_graph(tmp_path, "demo", "app", 8) is None
+
+
+def test_a_fresh_session_has_only_snapshot_done(tmp_path):
+    _session(tmp_path, snapshot__json={"body": "x" * 200, "files": [{"filename": "a.py"}]})
+    nodes = _by_id(metrics.pipeline_graph(tmp_path, "demo", "app", 8))
+    assert nodes["snapshot"]["status"] == "done"
+    assert nodes["claims"]["status"] == "pending"
+    assert nodes["snapshot"]["metrics"][0] == {"label": "files", "value": 1}
+
+
+def test_a_long_pr_body_skips_describe(tmp_path):
+    _session(tmp_path, snapshot__json={"body": "x" * 200})
+    assert _by_id(metrics.pipeline_graph(tmp_path, "demo", "app", 8))["describe"]["status"] == "skipped"
+
+
+def test_a_thin_pr_body_leaves_describe_pending(tmp_path):
+    _session(tmp_path, snapshot__json={"body": "too short"})
+    assert _by_id(metrics.pipeline_graph(tmp_path, "demo", "app", 8))["describe"]["status"] == "pending"
+
+
+def test_remediate_is_skipped_when_no_doc_is_fixable(tmp_path):
+    _session(tmp_path,
+             snapshot__json={"body": "x" * 200},
+             findings__json={"docs": [{"path": "README.md", "status": "MATCH"}]})
+    assert _by_id(metrics.pipeline_graph(tmp_path, "demo", "app", 8))["remediate"]["status"] == "skipped"
+
+
+def test_remediate_is_pending_when_a_doc_is_stale(tmp_path):
+    _session(tmp_path,
+             snapshot__json={"body": "x" * 200},
+             findings__json={"docs": [{"path": "README.md", "status": "STALE"}]})
+    assert _by_id(metrics.pipeline_graph(tmp_path, "demo", "app", 8))["remediate"]["status"] == "pending"
+
+
+def test_the_reply_loop_is_skipped_until_it_runs(tmp_path):
+    _session(tmp_path, snapshot__json={"body": "x" * 200})
+    assert _by_id(metrics.pipeline_graph(tmp_path, "demo", "app", 8))["followup"]["status"] == "skipped"
+
+
+def test_usage_lands_on_the_phase_that_spent_it(tmp_path):
+    _session(tmp_path,
+             snapshot__json={"body": "x" * 200},
+             findings__json={"claims": [{"id": "C1"}], "docs": []},
+             usage__json=[{"phase": "verify", "cost_usd": 0.34, "duration_ms": 9100,
+                           "model": "claude-sonnet-5", "num_turns": 12}])
+    verify = _by_id(metrics.pipeline_graph(tmp_path, "demo", "app", 8))["verify"]
+    assert verify["status"] == "done"
+    assert verify["cost_usd"] == 0.34
+    assert verify["model"] == "claude-sonnet-5"
+    assert {"label": "claims", "value": 1} in verify["metrics"]
+
+
+def test_a_failed_report_is_marked_failed(tmp_path):
+    _session(tmp_path, snapshot__json={"body": "x" * 200},
+             report__md="# Review FAILED\n\n- Error: boom\n")
+    assert _by_id(metrics.pipeline_graph(tmp_path, "demo", "app", 8))["report"]["status"] == "failed"
+
+
+def test_a_live_lock_marks_the_first_unfinished_phase_running(tmp_path, monkeypatch):
+    d = _session(tmp_path, snapshot__json={"body": "x" * 200},
+                 claims__json=[{"id": "C1"}])
+    (d / "review.lock").write_text(json.dumps({"pid": os.getpid(),
+                                               "started_at": "2026-08-16T10:00:00"}))
+    graph = metrics.pipeline_graph(tmp_path, "demo", "app", 8)
+    assert graph["running"] is True
+    assert _by_id(graph)["verify"]["status"] == "running"
+
+
+def test_edges_form_the_documented_dag(tmp_path):
+    _session(tmp_path, snapshot__json={"body": "x" * 200})
+    edges = {(e["source"], e["target"])
+             for e in metrics.pipeline_graph(tmp_path, "demo", "app", 8)["edges"]}
+    assert ("verify", "remediate") in edges     # doc-fix branch
+    assert ("followup", "verify") in edges      # reply loop
+    assert ("remediate", "report") in edges

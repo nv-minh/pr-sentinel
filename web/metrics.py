@@ -4,6 +4,8 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+from describe import MIN_BODY_CHARS
+from remediate import fixable_docs
 from synthesize import _overall_verdict
 
 VERDICTS = ("ACCURATE", "PARTIAL", "MISLEADING", "NO_CLAIMS")
@@ -344,3 +346,131 @@ def review_process_info(session_dir: Path) -> dict | None:
     except PermissionError:
         pass
     return {"pid": pid, "started_at": started_at}
+
+
+# The pipeline, as the dashboard draws it. `optional` phases do not run on every
+# review — a good PR body skips Describe, no fixable docs skips Doc fixes, and
+# the reply loop only runs under `--reply`.
+PHASES = (
+    {"id": "snapshot", "label": "Snapshot", "artifact": "snapshot.json"},
+    {"id": "describe", "label": "Describe", "artifact": "description.json"},
+    {"id": "claims", "label": "Claims", "artifact": "claims.json"},
+    {"id": "followup", "label": "Replies", "artifact": "replies.json"},
+    {"id": "verify", "label": "Verify", "artifact": "findings.json"},
+    {"id": "remediate", "label": "Doc fixes", "artifact": "patches.json"},
+    {"id": "score", "label": "Score", "artifact": "score.json"},
+    {"id": "ask", "label": "Confirm", "artifact": "answers.json"},
+    {"id": "report", "label": "Report", "artifact": "report.md"},
+)
+
+EDGES = (
+    ("snapshot", "describe"), ("describe", "claims"), ("claims", "verify"),
+    ("followup", "verify"), ("verify", "score"), ("verify", "remediate"),
+    ("score", "ask"), ("ask", "report"), ("remediate", "report"),
+)
+
+# The path a run actually walks, used to decide which node is the live one.
+ORDER = ("snapshot", "describe", "claims", "verify", "score", "ask", "report")
+
+
+def _phase_skipped(phase_id: str, snapshot: dict, findings: dict) -> bool:
+    """Whether a missing artifact means 'not applicable' rather than 'not yet'."""
+    if phase_id == "describe":
+        return len((snapshot.get("body") or "").strip()) >= MIN_BODY_CHARS
+    if phase_id == "remediate":
+        return not fixable_docs(findings)
+    if phase_id == "followup":
+        return True  # only ever runs on --reply; its artifact is the only proof
+    return False
+
+
+def _phase_metrics(phase_id: str, session_dir: Path, snapshot: dict,
+                   findings: dict, scores: dict) -> list[dict]:
+    """The two or three numbers worth putting on the node itself."""
+    if phase_id == "snapshot":
+        return [{"label": "files", "value": len(snapshot.get("files") or [])},
+                {"label": "commits", "value": len(snapshot.get("commits") or [])},
+                {"label": "pruned", "value": len(snapshot.get("pruned") or [])}]
+    if phase_id == "claims":
+        return [{"label": "claims",
+                 "value": len(_read_json_list(session_dir / "claims.json"))}]
+    if phase_id == "verify":
+        return [{"label": "claims", "value": len(findings.get("claims") or [])},
+                {"label": "docs", "value": len(findings.get("docs") or [])},
+                {"label": "callers",
+                 "value": len(findings.get("callers_outside_diff") or [])},
+                {"label": "contracts", "value": len(findings.get("contracts") or [])}]
+    if phase_id == "score":
+        value = scores.get("verification_score")
+        return [{"label": "gate", "value": scores.get("gate") or "—"},
+                {"label": "verified",
+                 "value": f"{round(value * 100)}%" if value is not None else "—"}]
+    if phase_id == "ask":
+        answers = _read_json_list(session_dir / "answers.json")
+        return [{"label": "answered",
+                 "value": sum(1 for a in answers
+                              if a.get("answer") not in ("SKIPPED", ""))},
+                {"label": "open",
+                 "value": sum(1 for a in answers
+                              if a.get("answer") in ("SKIPPED", ""))}]
+    if phase_id == "remediate":
+        return [{"label": "patches",
+                 "value": len(_read_json_list(session_dir / "patches.json"))}]
+    if phase_id == "followup":
+        return [{"label": "replies",
+                 "value": len(_read_json_list(session_dir / "replies.json"))}]
+    return []
+
+
+def pipeline_graph(session_root: Path, owner: str, repo: str, n: int) -> dict | None:
+    """The review pipeline for one PR, derived only from artifacts on disk.
+
+    There is no run state to store: a phase is done because its file exists, and
+    the live phase is the first one that has neither run nor been skipped.
+    """
+    session_dir = session_root / owner / repo / f"pr-{n}"
+    if not session_dir.is_dir():
+        return None
+    snapshot = _read_json(session_dir / "snapshot.json") or {}
+    findings = _read_json(session_dir / "findings.json") or {}
+    scores = _read_json(session_dir / "score.json") or {}
+    usage = {e.get("phase"): e
+             for e in _read_json_list(session_dir / "usage.json")
+             if isinstance(e, dict)}
+    report = session_dir / "report.md"
+    failed = report.exists() and report.read_text(
+        errors="replace").startswith("# Review FAILED")
+    running = review_process_info(session_dir) is not None
+
+    nodes = []
+    for phase in PHASES:
+        phase_id = phase["id"]
+        if (session_dir / phase["artifact"]).exists():
+            status = "failed" if (phase_id == "report" and failed) else "done"
+        elif _phase_skipped(phase_id, snapshot, findings):
+            status = "skipped"
+        else:
+            status = "pending"
+        spent = usage.get(phase_id) or {}
+        nodes.append({
+            "id": phase_id,
+            "label": phase["label"],
+            "status": status,
+            "artifact": phase["artifact"],
+            "cost_usd": spent.get("cost_usd"),
+            "duration_ms": spent.get("duration_ms"),
+            "model": spent.get("model", ""),
+            "metrics": _phase_metrics(phase_id, session_dir, snapshot,
+                                      findings, scores),
+        })
+
+    if running:
+        by_id = {node["id"]: node for node in nodes}
+        for phase_id in ORDER:
+            if by_id[phase_id]["status"] == "pending":
+                by_id[phase_id]["status"] = "running"
+                break
+
+    return {"nodes": nodes,
+            "edges": [{"source": s, "target": t} for s, t in EDGES],
+            "running": running}

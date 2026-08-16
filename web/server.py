@@ -117,6 +117,15 @@ def api_report(owner: str, repo: str, pr: int):
     return {"markdown": path.read_text(errors="replace")}
 
 
+@app.get("/api/repos/{owner}/{repo}/pr/{pr}/graph")
+def api_graph(owner: str, repo: str, pr: int):
+    """The review pipeline as nodes and edges, for the dashboard's graph view."""
+    graph = metrics.pipeline_graph(_session_root(), owner, repo, pr)
+    if graph is None:
+        raise HTTPException(status_code=404, detail="no session for this PR")
+    return graph
+
+
 # ------------------------------------------------------------------------- config
 
 @app.get("/api/config")

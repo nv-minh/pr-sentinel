@@ -454,3 +454,20 @@ def test_trigger_review_uses_the_provider_auth_rule(tmp_path, monkeypatch):
     r = TestClient(app).post("/api/repos/demo/app/pr/8/review")
     assert r.status_code == 400
     assert "ZAI_API_KEY" in r.json()["detail"]
+
+
+# ------------------------------------------------------------------------- graph
+
+def test_graph_endpoint_serves_the_demo_session(monkeypatch):
+    # absolute, so the test does not depend on pytest's working directory
+    demo_root = Path(__file__).resolve().parents[1] / "sessions"
+    monkeypatch.setenv("PRS_SESSION_ROOT", str(demo_root))
+    body = TestClient(app).get("/api/repos/demo/app/pr/8/graph").json()
+    ids = [n["id"] for n in body["nodes"]]
+    assert ids[0] == "snapshot" and "verify" in ids
+    assert body["running"] is False
+
+
+def test_graph_endpoint_404s_for_an_unknown_pr(tmp_path, monkeypatch):
+    monkeypatch.setenv("PRS_SESSION_ROOT", str(tmp_path))
+    assert TestClient(app).get("/api/repos/demo/app/pr/999/graph").status_code == 404
