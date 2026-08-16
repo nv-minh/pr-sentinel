@@ -1,6 +1,7 @@
 """Phase 5: turn findings into report.md and into one comment on the PR."""
 from pathlib import Path
 
+import untrusted
 from gh import run_gh
 
 MARKER = "<!-- pr-sentinel -->"
@@ -114,6 +115,12 @@ def build_report(snapshot: dict, claims: list[dict], findings: dict,
         _table(lines, "Excluded from review context", ["File", "Reason", "Dropped"],
                [[_cell(p["filename"]), _cell(p["reason"]), "yes" if p["dropped"] else "patch only"]
                 for p in pruned])
+
+    neutralized = untrusted.load_neutralized(session_dir)
+    if neutralized:
+        _table(lines, "Neutralized in untrusted text", ["Phase", "What was stripped"],
+               [[entry["phase"], _cell(item)]
+                for entry in neutralized for item in entry["items"]])
 
     lines += ["", "## Confirmation log", ""]
     for a in answers:

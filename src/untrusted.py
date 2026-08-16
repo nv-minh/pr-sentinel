@@ -15,7 +15,9 @@ walks straight past it, so it must never be mistaken for the control. What it
 strips is recorded rather than silently dropped, the way prune.py records every
 file it removes.
 """
+import json
 import re
+from pathlib import Path
 
 OPEN = "<<<UNTRUSTED {label}>>>"
 CLOSE = "<<<END {label}>>>"
@@ -68,3 +70,32 @@ def block(label: str, text: str, *, found: list[str] | None = None) -> str:
     if found is not None:
         found.extend(f"{label}: {hit}" for hit in hits)
     return f"{OPEN.format(label=slug)}\n{cleaned}\n{CLOSE.format(label=slug)}"
+
+
+def record_neutralized(session_dir: Path, phase: str, items: list[str]) -> None:
+    """Persist what one phase stripped. Never fails a review.
+
+    Same shape as agent.record_usage: one file per session, one entry per phase,
+    replaced rather than appended so a --force re-run does not double-count.
+    """
+    path = session_dir / "neutralized.json"
+    entries = [e for e in load_neutralized(session_dir) if e.get("phase") != phase]
+    if items:
+        entries.append({"phase": phase, "items": list(items)})
+    try:
+        if not entries:
+            path.unlink(missing_ok=True)
+            return
+        session_dir.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(entries, indent=2))
+    except OSError:
+        pass
+
+
+def load_neutralized(session_dir: Path) -> list[dict]:
+    """Every phase's neutralized items, or [] when there are none."""
+    try:
+        entries = json.loads((session_dir / "neutralized.json").read_text())
+    except (OSError, json.JSONDecodeError):
+        return []
+    return entries if isinstance(entries, list) else []
