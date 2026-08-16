@@ -138,6 +138,56 @@ def test_ci_mode_exits_zero_when_gate_passes(tmp_path, monkeypatch):
                  "--ci"]) == 0
 
 
+def test_reply_mode_does_nothing_without_new_replies(tmp_path, monkeypatch, capsys):
+    _patch_pipeline(monkeypatch, tmp_path, [], [])
+    assert main(["demo/app", "7", "--no-post", "--skip-human"]) == 0
+    monkeypatch.setattr("threads.fetch_replies", lambda *a, **kw: [])
+
+    assert main(["demo/app", "7", "--no-post", "--skip-human", "--reply"]) == 0
+    assert "No new replies" in capsys.readouterr().out
+
+
+def test_reply_mode_resumes_instead_of_reviewing(tmp_path, monkeypatch):
+    verify_calls = []
+    _patch_pipeline(monkeypatch, tmp_path, verify_calls, [])
+    assert main(["demo/app", "7", "--no-post", "--skip-human"]) == 0
+
+    reply = {"id": 5, "source": "conversation", "author": "dev1",
+             "body": "refactored, see the new commit", "path": None}
+    followups = []
+
+    def fake_followup(cfg, workspace, session_dir, snapshot, replies, new_commits,
+                      runner=None):
+        followups.append(replies)
+        return dict(FINDINGS)
+
+    monkeypatch.setattr("threads.fetch_replies", lambda *a, **kw: [reply])
+    monkeypatch.setattr("threads.run_followup", fake_followup)
+
+    assert main(["demo/app", "7", "--no-post", "--skip-human", "--reply"]) == 0
+    assert followups == [[reply]]
+    assert len(verify_calls) == 1          # the full verify never ran again
+    assert json.loads((_session(tmp_path) / "replies.json").read_text())[0]["id"] == 5
+    assert (_session(tmp_path) / "rounds.txt").read_text().strip() == "2"
+
+
+def test_reply_mode_falls_back_to_a_full_review(tmp_path, monkeypatch):
+    verify_calls = []
+    _patch_pipeline(monkeypatch, tmp_path, verify_calls, [])
+    assert main(["demo/app", "7", "--no-post", "--skip-human"]) == 0
+
+    def cannot_resume(*a, **kw):
+        raise RuntimeError("no previous verify session to resume")
+
+    monkeypatch.setattr("threads.fetch_replies",
+                        lambda *a, **kw: [{"id": 5, "source": "conversation",
+                                           "author": "dev1", "body": "hi", "path": None}])
+    monkeypatch.setattr("threads.run_followup", cannot_resume)
+
+    assert main(["demo/app", "7", "--no-post", "--skip-human", "--reply"]) == 0
+    assert len(verify_calls) == 2          # fell back to the full pass
+
+
 def test_failed_phase_writes_failure_report(tmp_path, monkeypatch):
     _patch_pipeline(monkeypatch, tmp_path, [], [])
 
