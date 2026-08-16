@@ -16,6 +16,7 @@ permissions:
   pull-requests: write
   issues: write
   checks: write
+  actions: read
 
 jobs:
   review:
@@ -33,17 +34,17 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          cold() { echo "Starting cold: $1"; rm -f session.zip; exit 0; }
           id=$(gh api \
             "repos/$GITHUB_REPOSITORY/actions/artifacts?name=pr-sentinel-session-$PR_NUMBER&per_page=1" \
-            --jq '.artifacts[0].id // empty')
-          if [ -z "$id" ]; then
-            echo "No previous session artifact for PR $PR_NUMBER — this review starts cold."
-            exit 0
-          fi
-          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$id/zip" > session.zip
+            --jq '.artifacts[0].id // empty') \
+            || cold "could not list artifacts for PR $PR_NUMBER"
+          [ -n "$id" ] || cold "no previous session artifact for PR $PR_NUMBER"
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$id/zip" > session.zip \
+            || cold "artifact $id could not be downloaded"
           mkdir -p sessions
-          unzip -q -o session.zip -d sessions
-          rm session.zip
+          unzip -q -o session.zip -d sessions || cold "artifact $id was not a readable zip"
+          rm -f session.zip
           echo "Restored session artifact $id."
 
       - uses: actions/setup-python@v6
