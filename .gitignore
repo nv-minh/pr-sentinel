@@ -16,3 +16,4 @@ prsentinel.lock
 node_modules/
 web/ui/dist/
 *.tsbuildinfo
+.worktrees/
