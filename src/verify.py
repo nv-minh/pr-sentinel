@@ -172,10 +172,39 @@ def _requirement_section(ticket: dict | None,
     return "\n" + "\n\n".join(parts) + "\n"
 
 
+def _siblings_section(siblings: dict | None,
+                      found: list[str] | None = None) -> str:
+    """The overlapping open PRs as prompt text, or "" when there are none.
+
+    Returning "" matters: a PR with no sibling must produce exactly the prompt
+    this project produced before the scan existed, so the feature costs nothing
+    when it has nothing to say.
+    """
+    entries = (siblings or {}).get("siblings") or []
+    if not entries:
+        return ""
+    blocks = []
+    for s in entries:
+        diff = "\n\n".join(f"--- {f.get('filename', '?')}\n"
+                           f"{f.get('patch') or '(no patch available)'}"
+                           for f in s.get("files") or [])
+        label = "same file" if s.get("overlap") == "file" else "same module"
+        blocks.append(
+            f"PR #{s.get('pr')} by @{s.get('author') or '?'}, "
+            f"updated {s.get('updated_at') or '?'}\n"
+            f"overlap: {label} — {', '.join(s.get('overlap_paths') or [])}\n"
+            + untrusted.block(f"PR {s.get('pr')}",
+                              f"{s.get('title') or ''}\n\n{diff}", found=found))
+    return ("\nOther open pull requests changing the same code. Their code is NOT "
+            "in this checkout — you have only the diff below.\n\n"
+            + "\n\n".join(blocks) + "\n")
+
+
 def build_verify_prompt(snapshot: dict, claims: list[dict],
                         ticket: dict | None = None,
                         found: list[str] | None = None,
-                        language: str = "en") -> str:
+                        language: str = "en",
+                        siblings: dict | None = None) -> str:
     """Instruct the agent to verify the PR from inside the workspace."""
     files = [f"- {f['filename']} (+{f.get('additions', 0)}/-{f.get('deletions', 0)})"
              for f in snapshot["files"]]
@@ -201,7 +230,7 @@ verdict depends on them):
 
 Review threads:
 {chr(10).join(threads) if threads else '- (none)'}
-
+{_siblings_section(siblings, found=found)}
 {_requirement_section(ticket, found=found)}
 
 Claims to verify — read the actual code, do not trust the description:
@@ -237,7 +266,16 @@ Produce, in the required schema:
    little), MISSING (new logic with no test). List 2-3 concrete uncovered edge
    cases and the file:function each belongs in.
 7. threads — do the unresolved review comments still hold against the current code?
-8. unresolved_questions — anything you could not verify, phrased as a question of
+8. cross_pr — for each pull request listed above, decide whether merging BOTH
+   would break behaviour that neither PR's own CI can see: SEMANTIC_CONFLICT
+   (this PR invalidates an assumption the other relies on, or vice versa — a
+   renamed or removed symbol it calls, a changed default, a narrowed type, an
+   incompatible migration), DUPLICATE_WORK (both implement the same behaviour),
+   MERGE_ORDER_RISK (safe in one merge order only) or NO_CONFLICT. Cite
+   file:line from THIS checkout in evidence; refer to the other side as
+   "PR #<n>: <path>" — you cannot read its code. Never name a PR number that is
+   not listed above. If no pull requests are listed, return an empty array.
+9. unresolved_questions — anything you could not verify, phrased as a question of
    at most 20 words, in {LANGUAGES.get(language, "English")}.
 
 Do not guess. Anything unproven is UNVERIFIED plus a question.
@@ -289,13 +327,15 @@ def validate_findings(data: dict, sibling_numbers: set[int] | None = None) -> di
 
 def run_verify(cfg: dict, workspace: Path, session_dir: Path, snapshot: dict,
                claims: list[dict], ticket: dict | None = None,
+               siblings: dict | None = None,
                runner=_default_runner) -> dict:
     """Run the deep-dive agent and persist findings.json. Returns the findings."""
     session_dir.mkdir(parents=True, exist_ok=True)
     tools = BASH_TOOLS if cfg.get("allow_bash") else READ_ONLY_TOOLS
     found: list[str] = []
     prompt = build_verify_prompt(snapshot, claims, ticket, found=found,
-                                 language=cfg.get("language", "en"))
+                                 language=cfg.get("language", "en"),
+                                 siblings=siblings)
     result = runner(
         prompt,
         schema=FINDINGS_SCHEMA,
@@ -309,7 +349,10 @@ def run_verify(cfg: dict, workspace: Path, session_dir: Path, snapshot: dict,
         session_dir=session_dir,
         provider=cfg.get("provider"),
     )
-    findings = validate_findings(result.data)
+    # An invented PR number would otherwise survive into findings.json; only
+    # numbers this run actually scanned are eligible to appear in cross_pr.
+    numbers = {s.get("pr") for s in (siblings or {}).get("siblings") or []}
+    findings = validate_findings(result.data, numbers or None)
 
     (session_dir / "findings.json").write_text(json.dumps(findings, indent=2))
     (session_dir / "verify-meta.json").write_text(json.dumps(
