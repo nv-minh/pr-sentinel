@@ -83,14 +83,14 @@ def rank(cands: list[dict], limit: int) -> list[dict]:
 
 
 QUERY = """
-query($owner:String!,$repo:String!,$limit:Int!){
+query($owner:String!,$repo:String!,$limit:Int!,$files:Int!){
   repository(owner:$owner,name:$repo){
     pullRequests(states:OPEN, first:$limit,
                  orderBy:{field:UPDATED_AT, direction:DESC}){
       nodes{
         number title isDraft baseRefName headRefName updatedAt url
         author{login}
-        files(first:100){ nodes{ path } }
+        files(first:$files){ nodes{ path } }
       }
     }
   }
@@ -99,6 +99,11 @@ query($owner:String!,$repo:String!,$limit:Int!){
 
 NO_OVERLAP = ("no other open pull request changes the same files or a sensitive "
               "module this PR touches")
+
+
+def _diffs_unreadable(count: int) -> str:
+    return (f"found {count} overlapping open pull request(s) but could not read "
+            f"any of their diffs")
 
 
 def _nodes(payload) -> list[dict]:
@@ -181,10 +186,12 @@ def fetch_siblings(snapshot: dict, session_dir: Path, cfg: dict,
     owner = snapshot.get("owner", "")
     repo = snapshot.get("repo", "")
     result: dict = {"scanned": 0, "truncated": False, "skipped": "", "siblings": []}
+    picked: list[dict] = []
     try:
         nodes = _nodes(gh(["api", "graphql", "-f", f"query={QUERY}",
                            "-F", f"owner={owner}", "-F", f"repo={repo}",
-                           "-F", f"limit={MAX_OPEN_PRS}"]))
+                           "-F", f"limit={MAX_OPEN_PRS}",
+                           "-F", f"files={MAX_SIBLING_FILES}"]))
     except RuntimeError as e:
         nodes = []
         result["skipped"] = f"could not list open pull requests: {e}"
@@ -198,8 +205,12 @@ def fetch_siblings(snapshot: dict, session_dir: Path, cfg: dict,
                       cfg.get("max_siblings", 3))
         result["siblings"] = [s for s in picked
                               if _fetch_diff(owner, repo, s, gh)]
+    # `skipped` is non-empty here only when the GraphQL call itself failed —
+    # leave that message alone. Otherwise: overlapping PRs were found but every
+    # diff fetch failed (`picked` non-empty, `siblings` empty) is a different,
+    # and opposite, truth from genuinely finding no overlap at all.
     if not result["siblings"] and not result["skipped"]:
-        result["skipped"] = NO_OVERLAP
+        result["skipped"] = _diffs_unreadable(len(picked)) if picked else NO_OVERLAP
 
     session_dir.mkdir(parents=True, exist_ok=True)
     (session_dir / "siblings.json").write_text(json.dumps(result, indent=2))

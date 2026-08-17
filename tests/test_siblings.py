@@ -1,6 +1,7 @@
 import json
 
-from siblings import MAX_OPEN_PRS, fetch_siblings, our_paths, overlap_of, rank
+from siblings import (MAX_OPEN_PRS, MAX_SIBLING_FILES, fetch_siblings,
+                      our_paths, overlap_of, rank)
 
 SENSITIVE = ["**/payment*/**", "**/migrations/**"]
 
@@ -168,6 +169,14 @@ def test_a_shared_lockfile_is_not_an_overlap(tmp_path):
     assert fetch_siblings(snap, tmp_path, CFG, GATE, gh=gh)["siblings"] == []
 
 
+def test_a_sibling_that_only_touches_a_generated_file_is_not_an_overlap(tmp_path):
+    # `_candidates` must filter the SIBLING's paths through prune.classify too,
+    # not just ours — otherwise a shared directory containing only a generated
+    # file on their side wrongly reports a `module` overlap on src/payment.
+    gh = _gh([_node(456, ["src/payment/invoice.min.js"])], DIFF)
+    assert fetch_siblings(SNAPSHOT, tmp_path, CFG, GATE, gh=gh)["siblings"] == []
+
+
 def test_no_overlap_records_why_and_fetches_no_diff(tmp_path):
     calls = []
     gh = _gh([_node(456, ["web/ui.ts"])], DIFF, calls=calls)
@@ -207,11 +216,27 @@ def test_a_sibling_whose_diff_cannot_be_read_is_dropped(tmp_path):
     result = fetch_siblings(SNAPSHOT, tmp_path, CFG, GATE, gh=gh)
     assert result["siblings"] == []
     assert result["scanned"] == 1
+    # Overlapping PRs WERE found; only their diffs were unreadable — the
+    # opposite claim ("no other open pull request...") would mislead the
+    # reader into thinking nothing overlaps at all.
+    assert "found 1 overlapping open pull request" in result["skipped"]
+    assert "could not read" in result["skipped"]
+    assert "no other open pull request" not in result["skipped"]
 
 
 def test_a_full_page_of_open_prs_marks_the_scan_truncated(tmp_path):
     nodes = [_node(100 + i, ["web/ui.ts"]) for i in range(MAX_OPEN_PRS)]
     result = fetch_siblings(SNAPSHOT, tmp_path, CFG, GATE, gh=_gh(nodes, DIFF))
+    assert result["truncated"] is True
+
+
+def test_a_sibling_with_a_full_page_of_files_marks_the_scan_truncated(tmp_path):
+    # A single node whose files list hit the per-PR cap means that PR's own
+    # file list is incomplete, even though far fewer than MAX_OPEN_PRS PRs
+    # were returned overall.
+    paths = [f"src/f{i}.py" for i in range(MAX_SIBLING_FILES)]
+    result = fetch_siblings(SNAPSHOT, tmp_path, CFG, GATE,
+                            gh=_gh([_node(456, paths)], DIFF))
     assert result["truncated"] is True
 
 

@@ -347,6 +347,15 @@ def test_validate_keeps_a_collision_naming_a_scanned_pr():
     assert len(data["cross_pr"]) == 1
 
 
+def test_validate_keeps_a_collision_whose_pr_is_a_string():
+    # A prompt-mode provider's JSON isn't schema-enforced server-side, so `pr`
+    # can arrive as "456" instead of 456 — that must not look like a
+    # hallucinated PR number and get the finding dropped.
+    data = validate_findings({**FINDINGS, "cross_pr": [_collision(pr="456")]},
+                             sibling_numbers={456})
+    assert len(data["cross_pr"]) == 1
+
+
 def test_validate_without_a_sibling_set_checks_no_pr_numbers():
     # threads.py revalidates carried-forward findings and has no sibling list
     data = validate_findings({**FINDINGS, "cross_pr": [_collision(pr=999)]})
@@ -417,3 +426,33 @@ def test_run_verify_passes_the_sibling_numbers_to_validation(tmp_path):
     out = run_verify({"model": "m"}, tmp_path / "ws", tmp_path / "s", SNAPSHOT, [],
                      siblings=SIBLINGS, runner=runner)
     assert out["cross_pr"] == []          # #999 was never scanned
+
+
+def test_run_verify_drops_a_collision_when_the_scan_ran_and_found_no_overlap(tmp_path):
+    # A scan that ran and found nothing still constrains the answer: a
+    # fabricated PR number must not survive just because there was no
+    # overlap to check it against.
+    findings = {**FINDINGS, "cross_pr": [_collision(pr=456)]}
+
+    def runner(prompt, **kw):
+        return AgentResult(data=findings, session_id="s1")
+
+    ran_empty = {"siblings": [], "skipped": "no other open pull request "
+                 "changes the same files or a sensitive module this PR touches"}
+    out = run_verify({"model": "m"}, tmp_path / "ws", tmp_path / "s", SNAPSHOT, [],
+                     siblings=ran_empty, runner=runner)
+    assert out["cross_pr"] == []
+
+
+def test_run_verify_does_not_filter_when_the_scan_never_ran(tmp_path):
+    # siblings=None means the phase was disabled, not that it ran and found
+    # nothing — the guard must not apply in that case.
+    findings = {**FINDINGS, "cross_pr": [_collision(pr=456)]}
+
+    def runner(prompt, **kw):
+        return AgentResult(data=findings, session_id="s1")
+
+    out = run_verify({"model": "m"}, tmp_path / "ws", tmp_path / "s", SNAPSHOT, [],
+                     siblings=None, runner=runner)
+    assert len(out["cross_pr"]) == 1
+    assert out["cross_pr"][0]["pr"] == 456

@@ -314,7 +314,16 @@ def validate_findings(data: dict, sibling_numbers: set[int] | None = None) -> di
     if sibling_numbers is not None:
         kept = []
         for c in data["cross_pr"]:
-            if c.get("pr") in sibling_numbers:
+            # A prompt-mode provider's JSON isn't schema-enforced server-side,
+            # so `pr` can arrive as "456" instead of 456 — coerce before the
+            # membership test the way score.cross_pr and synthesize._confidence
+            # already tolerate garbage, so a legitimate finding isn't dropped
+            # over a type mismatch.
+            try:
+                pr = int(c.get("pr"))
+            except (TypeError, ValueError):
+                pr = c.get("pr")
+            if pr in sibling_numbers:
                 kept.append(c)
             else:
                 # An invented PR number is a hallucination, not a schema break:
@@ -351,8 +360,11 @@ def run_verify(cfg: dict, workspace: Path, session_dir: Path, snapshot: dict,
     )
     # An invented PR number would otherwise survive into findings.json; only
     # numbers this run actually scanned are eligible to appear in cross_pr.
+    # A scan that ran and found nothing still constrains the answer: only
+    # `siblings=None` (the phase did not run) means "do not filter".
     numbers = {s.get("pr") for s in (siblings or {}).get("siblings") or []}
-    findings = validate_findings(result.data, numbers or None)
+    findings = validate_findings(result.data,
+                                 numbers if siblings is not None else None)
 
     (session_dir / "findings.json").write_text(json.dumps(findings, indent=2))
     (session_dir / "verify-meta.json").write_text(json.dumps(

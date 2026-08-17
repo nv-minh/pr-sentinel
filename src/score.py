@@ -128,7 +128,14 @@ def cross_pr(findings: dict) -> tuple[list[dict], list[dict]]:
 
 
 def score(findings: dict, gate: dict | None = None) -> dict:
-    """Full risk matrix + the merge decision (pass / warn / fail)."""
+    """Full risk matrix + the merge decision (pass / warn / fail).
+
+    `cross_pr()` is intentionally kept out of `business_risk()`, but its bump
+    is folded into the `"business_risk"` field returned here — so
+    `score()["business_risk"] == "medium"` can be entirely sibling-derived
+    (this PR's own code may be spotless) with nothing in that field alone
+    distinguishing the two cases; check `reasons`/`cross_pr` for that.
+    """
     cfg = {**DEFAULT_GATE, **(gate or {})}
     minimum = float(cfg["verification_score_min"])
 

@@ -172,7 +172,7 @@ describe('accessibility basics', () => {
   // empty repo list renders no buttons of its own. That single route was
   // the whole a11y suite before this fix, so it only ever inspected one
   // already-compliant button and one already-compliant h1. These three
-  // routes are what actually puts PrDetail's nine tabs, PipelineGraph's
+  // routes are what actually puts PrDetail's ten tabs, PipelineGraph's
   // phase buttons, RepoDetail's Review button and Config's SelectTriggers
   // under test.
   const routes: { path: string; label: string }[] = [

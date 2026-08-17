@@ -129,7 +129,7 @@ def build_report(snapshot: dict, claims: list[dict], findings: dict,
     # its absence means there's no "list below" to point at, so the empty text differs.
     _table(lines, "Cross-PR collisions",
            ["PR", "Status", "Symbol", "Paths", "Evidence", "Detail", "Confidence"],
-           [[f"#{c.get('pr', '?')}", c.get("status", "-"),
+           [[_cell(f"#{c.get('pr', '?')}"), c.get("status", "-"),
              _cell(c.get("symbol") or "-"),
              _cell(", ".join(c.get("paths") or []) or "-"),
              _cell(", ".join(c.get("evidence") or []) or "-"),

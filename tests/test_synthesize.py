@@ -206,6 +206,17 @@ def test_the_report_lists_collisions_and_the_prs_they_concern(tmp_path):
     assert "Scanned 12 open pull request(s)" in report
 
 
+def test_a_hostile_pr_value_does_not_split_the_collisions_table(tmp_path):
+    # `pr` is model-supplied and not schema-enforced under a prompt-mode
+    # provider; a `|` in it must not split the markdown row the way the
+    # sibling-link cell is already protected against.
+    hostile = {**COLLISION, "pr": "456|evil"}
+    (tmp_path / "siblings.json").write_text(json.dumps(SIBLINGS_JSON))
+    report = build_report(SNAPSHOT, [], {**FINDINGS, "cross_pr": [hostile]},
+                          [], tmp_path)
+    assert "#456\\|evil" in report
+
+
 def test_the_report_says_it_looked_and_found_nothing(tmp_path):
     (tmp_path / "siblings.json").write_text(json.dumps(SIBLINGS_JSON))
     report = build_report(SNAPSHOT, [], FINDINGS, [], tmp_path)

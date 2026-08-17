@@ -83,23 +83,23 @@ exists, so a re-run resumes rather than paying twice; `--force` re-runs them.
    REST + GraphQL APIs. Lockfiles, build output, binary assets and reformat-only
    patches (a Prettier pass that changes no behaviour) are pruned from the
    context here, and every removal is recorded in the report.
-2. **Sibling scan** — one GraphQL call lists the open pull requests, and any that
+2. **Tier** — before any model call, the PR is classified as trivial / standard /
+   critical from the paths it touches, which picks the model, reasoning effort,
+   turn limit and tool set for the run (see "Review budget by tier").
+3. **Ticket** — the Jira ticket the PR is about, if any, is fetched once and
+   cached as `ticket.json`; its text becomes the requirement `impact` is judged
+   against. Unconfigured Jira simply records why and moves on.
+4. **Sibling scan** — one GraphQL call lists the open pull requests, and any that
    change a file this PR changes — or a sensitive/contract directory it touches —
    have their diff fetched, trimmed and cached as `siblings.json`. Nothing is
    loaded when nothing overlaps.
-3. **Tier** — before any model call, the PR is classified as trivial / standard /
-   critical from the paths it touches, which picks the model, reasoning effort,
-   turn limit and tool set for the run (see "Review budget by tier").
-4. **Ticket** — the Jira ticket the PR is about, if any, is fetched once and
-   cached as `ticket.json`; its text becomes the requirement `impact` is judged
-   against. Unconfigured Jira simply records why and moves on.
 5. **Describe** — if the body is empty or too thin to claim anything, a
    description is drafted from the diff (proposed in the comment; only rewritten
    on the PR when `auto_describe` is on).
 6. **Claims** — the description is split into individually checkable statements.
 7. **Verify** — a read-only Claude agent works inside a disposable clone of the
    PR head and fills in the findings schema: claims, docs, impact, callers
-   outside the diff, contracts, tests.
+   outside the diff, contracts, tests, cross-PR collisions.
 8. **Score** — the findings become a merge decision.
 9. **Ask** — anything the agent could not prove becomes a question of at most 20
    words, for a human.
@@ -320,17 +320,21 @@ siblings:
   include_drafts: false
 ```
 
-A collision labels the PR `cross-pr-collision` and can take the gate to `warn`.
-Below 0.5 confidence it is reported but does not move the gate — a half-sure
-guess about a branch that may never merge is not worth an amber CI run. Even
-above that threshold it never fails a review: the other branch may never merge,
-or may merge after this one has already been fixed, and blocking a merge on a
-guess about a branch that does not exist yet is a false positive nobody thanks
-you for.
+A collision labels the PR `cross-pr-collision` and can take the gate to `warn`
+only when both hold: the status is `SEMANTIC_CONFLICT` or `MERGE_ORDER_RISK`,
+and confidence is at least 0.5. `DUPLICATE_WORK` is reported but never moves
+the gate at any confidence, and below 0.5 confidence a `SEMANTIC_CONFLICT` or
+`MERGE_ORDER_RISK` is reported but not gated either — a half-sure guess about a
+branch that may never merge is not worth an amber CI run. Even a confident
+collision never fails a review: the other branch may never merge, or may merge
+after this one has already been fixed, and blocking a merge on a guess about a
+branch that does not exist yet is a false positive nobody thanks you for.
 
 Costs are bounded on purpose: at most 50 open PRs are scanned, at most 3 get
 their diff loaded, and each of those is cut to 60 patch lines per file and 300
-in total. No overlap means the review costs exactly what it cost before.
+in total. No overlap means no sibling diff is loaded and no extra GitHub call
+is paid for beyond the one GraphQL listing — the verify prompt itself always
+carries the cross-PR instructions, whether or not any sibling exists.
 
 **The scan sees the pull requests that were open when it ran.** A sibling opened
 or merged afterwards is invisible until the review is re-run (`--force`, a new
