@@ -17,7 +17,8 @@ DEFAULTS = {
     "drafts": False,
     "skip_bots": True,
     # The language the model writes its output in (notes, questions,
-    # descriptions, PoC reasons). Fixed labels stay English.
+    # descriptions, PoC reasons, follow-up replies, the reason attached to a
+    # documentation fix). Fixed labels stay English.
     "language": "en",
     # Where LLM calls go. `providers` holds per-provider overrides; tokens are
     # never stored here, only the name of the env var that holds them.

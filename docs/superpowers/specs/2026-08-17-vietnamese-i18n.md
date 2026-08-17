@@ -241,6 +241,12 @@ of silently rendering English.
 dashboard exposes it, and that the interface language is a separate, per-browser
 setting that does not affect what the agent writes.
 
+The same list of what `language` reaches is duplicated in two more places: the
+`#` block above the `language:` key in `prsentinel.yml`, and the `#` block above
+the `DEFAULTS["language"]` entry in `src/autoreview_config.py`. All three —
+`README.md:267`, `prsentinel.yml` and `src/autoreview_config.py` — must be kept
+in sync whenever what `language` covers changes.
+
 ## Files touched
 
 **New:** `web/ui/src/i18n.ts`, `web/ui/src/strings.ts`, `web/ui/src/i18n.test.ts`.
@@ -248,8 +254,8 @@ setting that does not affect what the agent writes.
 **Modified:** `web/ui/src/{App,components}.tsx`, `web/ui/src/pages/*.tsx` (4),
 `web/ui/src/graph/{layout.ts,PhaseNode.tsx,PipelineGraph.tsx}`,
 `web/ui/src/status.ts`, `web/ui/src/api.ts`,
-`web/ui/src/{App,a11y,components,status}.test*`,
-`web/ui/src/graph/PipelineGraph.test.tsx`, `web/ui/index.html`,
+`web/ui/src/{App,a11y,components}.test*`,
+`web/ui/src/graph/PipelineGraph.test.tsx`,
 `web/server.py`, `src/autoreview_config.py`, `src/threads.py`,
 `src/remediate.py`, `tests/*`, `README.md`.
 
