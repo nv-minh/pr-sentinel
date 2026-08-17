@@ -34,6 +34,8 @@ DEFAULTS = {
     "inline_suggestions": True,  # suggestion blocks on docs inside the diff
     "poc_tests": True,          # generate a failing test for each BROKEN finding
     "max_inline_comments": 20,  # per review; the rest go in the summary comment
+    # Cross-PR sibling scan: which other open PRs touch the same code.
+    "siblings": {"enabled": True, "max_siblings": 3, "include_drafts": False},
     # Jira. Credentials live in the environment, never here.
     "jira": {"projects": [], "comment_result": False},
     "gate": dict(DEFAULT_GATE),
@@ -50,6 +52,7 @@ def load_config(path: Path) -> dict:
     cfg["repos"] = _normalize_repos(cfg.get("repos") or {})
     cfg["gate"] = {**DEFAULT_GATE, **(raw.get("gate") or {})}
     cfg["providers"] = dict(raw.get("providers") or {})
+    cfg["siblings"] = {**DEFAULTS["siblings"], **(raw.get("siblings") or {})}
     cfg["jira"] = {**DEFAULTS["jira"], **(raw.get("jira") or {})}
     validate_config(cfg)
     return cfg
@@ -82,6 +85,14 @@ def validate_config(cfg: dict) -> None:
         raise ValueError("jira.projects must be a list of project keys, e.g. [ABC, PRJ]")
     if not isinstance(jira_cfg.get("comment_result"), bool):
         raise ValueError("jira.comment_result must be true or false")
+    siblings_cfg = cfg.get("siblings", {})
+    for key in ("enabled", "include_drafts"):
+        if not isinstance(siblings_cfg.get(key), bool):
+            raise ValueError(f"siblings.{key} must be true or false")
+    cap = siblings_cfg.get("max_siblings")
+    # bool first: True is an int and would otherwise pass as a cap of 1.
+    if isinstance(cap, bool) or not isinstance(cap, int) or cap < 1:
+        raise ValueError("siblings.max_siblings must be a positive integer")
     if not isinstance(cfg.get("poc_tests"), bool):
         raise ValueError("poc_tests must be true or false")
     cap = cfg.get("max_inline_comments")
