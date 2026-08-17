@@ -21,6 +21,7 @@ const CONFIG = {
   auto_describe: false,
   docs_fix_pr: false,
   inline_suggestions: false,
+  language: 'en',
   gate: { verification_score_min: 0.8 },
   provider: {
     name: 'anthropic',

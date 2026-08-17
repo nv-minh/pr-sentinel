@@ -53,11 +53,39 @@ const PR = {
   usage: [], replies: [],
 }
 
+// Config route fixture, used only by the Vietnamese Config test below: no
+// other test in this file navigates to /config.
+const CONFIG = {
+  org: 'demo',
+  interval_minutes: 15,
+  post_comment: true,
+  skip_human: false,
+  auto_describe: false,
+  docs_fix_pr: false,
+  inline_suggestions: false,
+  language: 'en',
+  gate: { verification_score_min: 0.8 },
+  provider: {
+    name: 'anthropic',
+    base_url: 'https://api.anthropic.com',
+    model: 'claude-opus-4-6',
+    claims_model: 'claude-haiku-4-5',
+    structured_output: 'native',
+    reports_cost: true,
+    token_env: 'ANTHROPIC_API_KEY',
+    token_present: true,
+  },
+  providers: ['anthropic', 'openai'],
+  repos: [{ name: 'demo/app', mode: 'auto' }],
+  config_path: '/etc/prsentinel.yml',
+}
+
 function mockFetch() {
   return vi.fn(async (input: RequestInfo | URL) => {
     const url = String(input)
     const body =
       url === '/api/repos' ? { repos: [REPO] }
+      : url === '/api/config' ? CONFIG
       : url.includes('/review/status') ? { running: false, stale: false }
       : url.endsWith('/pr/8') ? PR
       : url.endsWith('/demo/app') ? REPO
@@ -195,5 +223,24 @@ describe('App', () => {
 
     clickLangToggle()
     expect(container.textContent).toContain('Blocking (3)')
+  })
+
+  it('renders the config page in Vietnamese, with a repo name landing inside the mode select aria-label', async () => {
+    await render('/config')
+    expect(container.textContent).toContain('What the poller watches')
+    expect(container.textContent).toContain('Model provider')
+    expect(container.querySelector('[aria-label="Mode for demo/app"]')).toBeTruthy()
+
+    clickLangToggle()
+
+    expect(container.textContent).toContain('Bộ quét đang theo dõi những gì')
+    expect(container.textContent).toContain('Nhà cung cấp model')
+    // config.modeAria, interpolated with the repo name
+    expect(container.querySelector('[aria-label="Chế độ cho demo/app"]')).toBeTruthy()
+    expect(container.textContent).not.toContain('What the poller watches')
+
+    clickLangToggle()
+    expect(container.textContent).toContain('What the poller watches')
+    expect(container.querySelector('[aria-label="Mode for demo/app"]')).toBeTruthy()
   })
 })

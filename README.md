@@ -265,9 +265,19 @@ dashboard shows whether a key is present, never the key.
 | `JIRA_API_TOKEN` | — | *Optional.* Jira API token (never stored in `prsentinel.yml`) |
 
 `prsentinel.yml` holds the rest. `language: en | vi` (default `en`) sets the
-language the model writes its output in — notes, unresolved questions, drafted
-descriptions and PoC failure reasons; fixed labels and section headers stay
-English. Four settings write outside the review comment
+language the model writes its prose
+in — findings notes, unresolved questions, drafted descriptions, PoC test
+reasons, follow-up replies and the reason attached to a documentation fix. Fixed
+labels stay English: the status vocabulary (`PASS`, `STALE`, `BREAKING_API_CHANGE`
+…) is a schema enum that CI reads, and a documentation patch keeps the language
+of the document it edits. Set it from the dashboard's Config page or in the file.
+
+The dashboard's own language is a **separate** setting, stored per browser and
+switched from the header. Reading a Vietnamese dashboard does not make the agent
+write Vietnamese into a public pull request, and it is never written to
+`prsentinel.yml`.
+
+Four settings write outside the review comment
 and three of them are **off by default**: `auto_describe` (rewrites the PR body),
 `docs_fix_pr` (opens a follow-up PR with doc fixes), `jira.comment_result`
 (posts the verdict to the Jira ticket), and `inline_suggestions` (suggestion
