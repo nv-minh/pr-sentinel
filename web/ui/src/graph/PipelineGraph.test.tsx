@@ -148,6 +148,11 @@ describe('PipelineGraph', () => {
     expect(list().textContent).toContain('xong') // graph.statusDone
     expect(list().textContent).not.toContain('Snapshot')
     expect(list().textContent).not.toContain('done')
+    // Unscoped: catches the canvas nodes too (PhaseNode.tsx), not just the
+    // screen-reader list above — a sighted user and a screen-reader user
+    // reading different words for the same phase is worse than both reading
+    // English.
+    expect(container.textContent).not.toContain('Snapshot')
 
     // Switch back inside the test: the store is module-level, so leaving it on
     // 'vi' would hand the next test in this file a Vietnamese pipeline text

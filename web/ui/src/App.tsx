@@ -43,6 +43,7 @@ export function App() {
             className="rounded border border-hairline-strong px-[9px] py-1 font-mono text-[12px] uppercase tracking-[0.08em] text-ink-muted hover:border-ink-muted hover:text-ink"
             onClick={() => setLang(lang === 'vi' ? 'en' : 'vi')}
             aria-label={lang === 'vi' ? t('nav.langSwitchToEn') : t('nav.langSwitchToVi')}
+            lang={lang === 'vi' ? 'en' : 'vi'}
           >
             {lang === 'vi' ? 'EN' : 'VI'}
           </button>

@@ -132,7 +132,9 @@ export function Config() {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="en" className="font-mono text-xs">{t('lang.en')}</SelectItem>
-              <SelectItem value="vi" className="font-mono text-xs">{t('lang.vi')}</SelectItem>
+              <SelectItem value="vi" className="font-mono text-xs">
+                <span lang="vi">{t('lang.vi')}</span>
+              </SelectItem>
             </SelectContent>
           </Select>
           <span className="text-xs text-ink-muted">{t('config.uiLanguageNote')}</span>
@@ -150,7 +152,9 @@ export function Config() {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="en" className="font-mono text-xs">{t('lang.en')}</SelectItem>
-              <SelectItem value="vi" className="font-mono text-xs">{t('lang.vi')}</SelectItem>
+              <SelectItem value="vi" className="font-mono text-xs">
+                <span lang="vi">{t('lang.vi')}</span>
+              </SelectItem>
             </SelectContent>
           </Select>
           <span className="text-xs text-ink-muted">{t('config.reviewLanguageNote')}</span>
