@@ -182,4 +182,18 @@ describe('App', () => {
     clickLangToggle()
     expect(container.textContent).toContain('Merge decisions')
   })
+
+  it('renders the PR detail page in Vietnamese, with the blocking count landing inside its sentence', async () => {
+    await render('/repos/demo/app/pr/8')
+    expect(container.textContent).toContain('Blocking (3)')
+
+    clickLangToggle()
+
+    expect(container.textContent).toContain('Chặn merge (3)') // pr.blockingHeading, interpolated
+    expect(container.textContent).toContain('Cổng merge') // pr.tileGate
+    expect(container.textContent).not.toContain('Blocking (3)')
+
+    clickLangToggle()
+    expect(container.textContent).toContain('Blocking (3)')
+  })
 })
