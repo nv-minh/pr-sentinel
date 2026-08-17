@@ -193,6 +193,7 @@ def set_language(path: Path, language: str) -> dict:
     round-trip through _write_atomic would rewrite the whole document and delete
     every comment in the file — including the block that documents this key.
     """
+    load_config(path)
     if language not in ("en", "vi"):
         raise ValueError("language must be 'en' or 'vi'")
     text = path.read_text() if path.exists() else ""
