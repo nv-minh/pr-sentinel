@@ -382,3 +382,55 @@ def test_edges_form_the_documented_dag(tmp_path):
     assert ("remediate", "report") in edges
     assert ("verify", "poc") in edges           # PoC-test branch
     assert ("poc", "report") in edges
+
+
+# ---------------------------------------------------------------- sibling scan
+
+SIBLINGS_JSON = {"scanned": 12, "truncated": False, "skipped": "",
+                 "siblings": [{"pr": 456, "title": "t", "author": "dev_b",
+                               "url": "u", "base": "main", "head": "h",
+                               "updated_at": "2026-08-16T09:00:00Z",
+                               "overlap": "file", "overlap_paths": ["a.py"],
+                               "files": [], "pruned": []}]}
+
+COLLISION = {"pr": 456, "status": "SEMANTIC_CONFLICT", "symbol": "createInvoice",
+             "paths": ["a.py"], "evidence": ["a.py:42"], "detail": "d",
+             "confidence": 0.9}
+
+
+def test_the_sibling_scan_is_a_pipeline_phase(tmp_path):
+    _session(tmp_path, snapshot__json={"body": "x" * 200},
+             siblings__json=SIBLINGS_JSON)
+    node = _by_id(metrics.pipeline_graph(tmp_path, "demo", "app", 8))["siblings"]
+    assert node["status"] == "done"
+    assert {"label": "scanned", "value": 12} in node["metrics"]
+    assert {"label": "overlapping", "value": 1} in node["metrics"]
+
+
+def test_a_session_without_a_sibling_scan_shows_the_phase_skipped(tmp_path):
+    # every session written before this feature, sessions/demo/app included
+    _session(tmp_path, snapshot__json={"body": "x" * 200})
+    assert _by_id(metrics.pipeline_graph(tmp_path, "demo", "app", 8))[
+        "siblings"]["status"] == "skipped"
+
+
+def test_the_sibling_phase_sits_between_snapshot_and_verify(tmp_path):
+    _session(tmp_path, snapshot__json={"body": "x" * 200})
+    edges = {(e["source"], e["target"])
+             for e in metrics.pipeline_graph(tmp_path, "demo", "app", 8)["edges"]}
+    assert ("snapshot", "siblings") in edges
+    assert ("siblings", "verify") in edges
+
+
+def test_the_pr_detail_carries_collisions_and_the_scan(tmp_path):
+    findings = {"claims": [], "docs": [], "impact": [],
+                "callers_outside_diff": [], "contracts": [], "tests": [],
+                "threads": [], "cross_pr": [COLLISION],
+                "unresolved_questions": []}
+    _write_session(tmp_path, "o", "r", 7, snapshot=SNAPSHOT, findings=findings)
+    (tmp_path / "o" / "r" / "pr-7" / "siblings.json").write_text(
+        json.dumps(SIBLINGS_JSON))
+    detail = metrics.pr_detail(tmp_path, "o", "r", 7)
+    assert detail["cross_pr"][0]["pr"] == 456
+    assert detail["siblings"]["scanned"] == 12
+    assert detail["pr"]["cross_pr"] == 1
