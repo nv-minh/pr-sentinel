@@ -182,3 +182,25 @@ def set_provider(path: Path, name: str) -> dict:
         text = f"provider: {name}\n"
     _write_text_atomic(path, text)
     return load_config(path)
+
+
+def set_language(path: Path, language: str) -> dict:
+    """Switch the language the model writes its output in.
+
+    Edits the one top-level `language:` line in the raw text, the way
+    set_provider does, so the operator's comments and ordering survive. A yaml
+    round-trip through _write_atomic would rewrite the whole document and delete
+    every comment in the file — including the block that documents this key.
+    """
+    if language not in ("en", "vi"):
+        raise ValueError("language must be 'en' or 'vi'")
+    text = path.read_text() if path.exists() else ""
+    if re.search(r"(?m)^language:", text):
+        text = re.sub(r"(?m)^language:[ \t]*.*$",
+                      lambda _m: f"language: {language}", text, count=1)
+    elif text.strip():
+        text = text.rstrip("\n") + f"\nlanguage: {language}\n"
+    else:
+        text = f"language: {language}\n"
+    _write_text_atomic(path, text)
+    return load_config(path)

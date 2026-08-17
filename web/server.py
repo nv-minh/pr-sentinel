@@ -19,7 +19,7 @@ from fastapi.staticfiles import StaticFiles
 import providers
 from autoreview_config import load_config as load_autoreview_config
 from autoreview_config import (auto_repos, list_repos, remove_repo,
-                               set_provider, set_repo_mode)
+                               set_language, set_provider, set_repo_mode)
 from config import load_config
 from run import main as run_main
 from web import metrics
@@ -143,6 +143,7 @@ def api_config():
     return {
         "org": cfg.get("org"),
         "default_mode": cfg.get("default_mode"),
+        "language": cfg.get("language"),
         "interval_minutes": cfg.get("interval_minutes"),
         "post_comment": cfg.get("post_comment"),
         "skip_human": cfg.get("skip_human"),
@@ -170,6 +171,18 @@ def api_set_provider(payload: dict):
     except (ValueError, OSError) as e:
         raise HTTPException(status_code=400, detail=str(e))
     return {"ok": True, "provider": name}
+
+
+@app.post("/api/config/language")
+def api_set_language(payload: dict):
+    """Set the language the review writes its prose in. Fixed labels stay English."""
+    path = _require_config()
+    language = (payload.get("language") or "").strip()
+    try:
+        set_language(path, language)
+    except (ValueError, OSError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"ok": True, "language": language}
 
 
 @app.post("/api/config/repos/{repo}/mode")

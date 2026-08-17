@@ -2,7 +2,8 @@
 import pytest
 
 from autoreview_config import (DEFAULTS, auto_repos, list_repos, load_config,
-                               remove_repo, set_provider, set_repo_mode)
+                               remove_repo, set_language, set_provider,
+                               set_repo_mode)
 
 NEW_YML = """
 org: sample-org
@@ -256,3 +257,41 @@ def test_max_inline_comments_rejects_a_bool(tmp_path):
     path.write_text("max_inline_comments: true\n")
     with pytest.raises(ValueError, match="max_inline_comments"):
         load_config(path)
+
+
+def test_set_language_writes_only_the_selection(tmp_path):
+    path = _write(tmp_path / "prsentinel.yml", "language: en\nrepos:\n  app: auto\n")
+    cfg = set_language(path, "vi")
+    assert cfg["language"] == "vi"
+    assert load_config(path)["language"] == "vi"
+    assert load_config(path)["repos"] == {"app": "auto"}
+
+
+def test_set_language_preserves_comments_and_formatting(tmp_path):
+    path = _write(tmp_path / "prsentinel.yml", (
+        "# PR Sentinel configuration.\n"
+        "# The language the model writes its output in. en | vi\n"
+        "language: en\n"
+        "interval_minutes: 2   # fast loop\n"
+        "repos:\n"
+        "  app: auto\n"))
+    set_language(path, "vi")
+    out = path.read_text()
+    assert "# PR Sentinel configuration." in out
+    assert "# The language the model writes its output in. en | vi" in out
+    assert "# fast loop" in out
+    assert "language: vi" in out
+    assert "language: en" not in out
+
+
+def test_set_language_adds_the_key_when_missing(tmp_path):
+    path = _write(tmp_path / "prsentinel.yml", "repos:\n  app: auto\n")
+    assert set_language(path, "vi")["language"] == "vi"
+    assert load_config(path)["language"] == "vi"
+
+
+def test_set_language_rejects_an_unsupported_language(tmp_path):
+    path = _write(tmp_path / "prsentinel.yml", "language: en\nrepos:\n  app: auto\n")
+    with pytest.raises(ValueError, match="language"):
+        set_language(path, "fr")
+    assert path.read_text().count("language: en") == 1
