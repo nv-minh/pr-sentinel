@@ -80,3 +80,134 @@ def rank(cands: list[dict], limit: int) -> list[dict]:
     ordered = sorted(by_recency, key=lambda c: (c["overlap"] != "file",
                                                 -len(c["overlap_paths"])))
     return ordered[:max(int(limit), 0)]
+
+
+QUERY = """
+query($owner:String!,$repo:String!,$limit:Int!){
+  repository(owner:$owner,name:$repo){
+    pullRequests(states:OPEN, first:$limit,
+                 orderBy:{field:UPDATED_AT, direction:DESC}){
+      nodes{
+        number title isDraft baseRefName headRefName updatedAt url
+        author{login}
+        files(first:100){ nodes{ path } }
+      }
+    }
+  }
+}
+"""
+
+NO_OVERLAP = ("no other open pull request changes the same files or a sensitive "
+              "module this PR touches")
+
+
+def _nodes(payload) -> list[dict]:
+    if not isinstance(payload, dict) or "errors" in payload or "data" not in payload:
+        raise RuntimeError(f"graphql failed: {payload}")
+    repo = (payload["data"] or {}).get("repository") or {}
+    return (repo.get("pullRequests") or {}).get("nodes") or []
+
+
+def _candidates(snapshot: dict, nodes: list[dict], cfg: dict,
+                gate: dict) -> list[dict]:
+    """Open PRs worth comparing against, before any diff is fetched."""
+    ours = our_paths(snapshot)
+    sensitive = {**DEFAULT_GATE, **(gate or {})}["sensitive_areas"]
+    out: list[dict] = []
+    for node in nodes:
+        if not isinstance(node, dict):
+            continue
+        if node.get("number") == snapshot.get("pr"):
+            continue
+        if node.get("isDraft") and not cfg.get("include_drafts", False):
+            continue
+        if node.get("baseRefName") != snapshot.get("base"):
+            continue
+        login = (node.get("author") or {}).get("login") or ""
+        if login.endswith("[bot]"):
+            continue
+        theirs = {f.get("path", "") for f in
+                  ((node.get("files") or {}).get("nodes") or [])
+                  if f.get("path") and prune.classify(f["path"]) is None}
+        kind, paths = overlap_of(ours, theirs, sensitive)
+        if not kind:
+            continue
+        out.append({"pr": node.get("number"), "title": node.get("title") or "",
+                    "author": login, "url": node.get("url") or "",
+                    "base": node.get("baseRefName") or "",
+                    "head": node.get("headRefName") or "",
+                    "updated_at": node.get("updatedAt") or "",
+                    "overlap": kind, "overlap_paths": paths,
+                    "files": [], "pruned": []})
+    return out
+
+
+def _fetch_diff(owner: str, repo: str, sibling: dict, gh) -> bool:
+    """Fill in the sibling's overlapping patches, trimmed. False when unreadable.
+
+    Only the overlapping paths are kept: the rest of somebody else's PR is not
+    what this review is about, and the prompt budget is small on purpose.
+    """
+    wanted = set(sibling["overlap_paths"])
+    by_dir = sibling["overlap"] == "module"
+    try:
+        files = gh(["api", f"repos/{owner}/{repo}/pulls/{sibling['pr']}/files",
+                    "--paginate"])
+    except RuntimeError as e:
+        print(f"[siblings] could not read the diff of #{sibling['pr']}: {e}",
+              file=sys.stderr)
+        return False
+    picked = [{"filename": f.get("filename", ""), "status": f.get("status", ""),
+               "additions": f.get("additions", 0),
+               "deletions": f.get("deletions", 0), "patch": f.get("patch", "")}
+              for f in files if isinstance(f, dict)
+              and (f.get("filename") in wanted
+                   or (by_dir and _dirname(f.get("filename", "")) in wanted))]
+    kept, pruned = prune.prune_files(
+        picked, max_patch_lines=MAX_SIBLING_PATCH_LINES,
+        max_total_lines=MAX_SIBLING_TOTAL_LINES)
+    sibling["files"] = kept
+    sibling["pruned"] = pruned
+    return True
+
+
+def fetch_siblings(snapshot: dict, session_dir: Path, cfg: dict,
+                   gate: dict | None = None, *, gh=_default_gh) -> dict:
+    """Find overlapping open PRs, persist siblings.json. Never raises.
+
+    Returns `{"scanned", "truncated", "skipped", "siblings"}`; `skipped` is a
+    sentence for the report and is non-empty exactly when nothing was fetched.
+    """
+    owner = snapshot.get("owner", "")
+    repo = snapshot.get("repo", "")
+    result: dict = {"scanned": 0, "truncated": False, "skipped": "", "siblings": []}
+    try:
+        nodes = _nodes(gh(["api", "graphql", "-f", f"query={QUERY}",
+                           "-F", f"owner={owner}", "-F", f"repo={repo}",
+                           "-F", f"limit={MAX_OPEN_PRS}"]))
+    except RuntimeError as e:
+        nodes = []
+        result["skipped"] = f"could not list open pull requests: {e}"
+
+    if nodes:
+        result["scanned"] = len(nodes)
+        result["truncated"] = len(nodes) >= MAX_OPEN_PRS or any(
+            len(((n.get("files") or {}).get("nodes") or [])) >= MAX_SIBLING_FILES
+            for n in nodes if isinstance(n, dict))
+        picked = rank(_candidates(snapshot, nodes, cfg, gate or {}),
+                      cfg.get("max_siblings", 3))
+        result["siblings"] = [s for s in picked
+                              if _fetch_diff(owner, repo, s, gh)]
+    if not result["siblings"] and not result["skipped"]:
+        result["skipped"] = NO_OVERLAP
+
+    session_dir.mkdir(parents=True, exist_ok=True)
+    (session_dir / "siblings.json").write_text(json.dumps(result, indent=2))
+    if result["truncated"]:
+        print(f"[siblings] warning: scan capped at {MAX_OPEN_PRS} open PRs / "
+              f"{MAX_SIBLING_FILES} files each — overlap data incomplete",
+              file=sys.stderr)
+    print(f"[siblings] scanned {result['scanned']} open PR(s), "
+          f"{len(result['siblings'])} overlapping"
+          + (f" — {result['skipped']}" if result["skipped"] else ""))
+    return result
