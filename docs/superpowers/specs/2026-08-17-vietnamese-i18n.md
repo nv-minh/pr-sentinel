@@ -115,11 +115,18 @@ const en = { 'nav.repos': 'Repos', /* … */ }
 const vi: Record<keyof typeof en, string> = { 'nav.repos': 'Kho mã', /* … */ }
 ```
 
-The annotation is `Record<keyof typeof en, string>` and **not** `typeof en`.
-`typeof en` infers literal types and would require the Vietnamese values to be
-byte-identical to the English ones. With `Record`, a missing Vietnamese key is a
-`tsc -b` error — and `tsc -b` already runs as the first half of `npm run build`,
-so an incomplete translation cannot reach a bundle.
+The annotation makes a **missing** Vietnamese key a `tsc -b` error — and `tsc -b`
+already runs as the first half of `npm run build`, so an incomplete translation
+cannot reach a bundle.
+
+(An earlier draft of this spec justified spelling it `Record<keyof typeof en,
+string>` rather than `typeof en` on the grounds that `typeof en` would infer
+literal types and demand identical values. That is wrong, and a reviewer
+disproved it with a standalone `tsc --strict` run: because `en` is declared
+without `as const`, `typeof en` widens each property to `string`, so differing
+Vietnamese values compile fine either way. Both spellings reject a missing key
+equally. The `Record` form is kept because it states the intent directly, not
+because the alternative fails.)
 
 Flat dotted keys, grouped by namespace: `nav.*`, `common.*`, `repos.*`,
 `repo.*`, `pr.*`, `config.*`, `gate.*`, `graph.phase.*`, `graph.metric.*`,
