@@ -119,6 +119,14 @@ def build_report(snapshot: dict, claims: list[dict], findings: dict,
              _cell(c.get("detail", ""))] for c in findings.get("contracts", [])],
            empty="- No API, schema, type or proto contract touched.")
 
+    try:
+        siblings = json.loads((session_dir / "siblings.json").read_text())
+    except (OSError, json.JSONDecodeError):
+        siblings = None
+    have_siblings = isinstance(siblings, dict)
+
+    # siblings.json is a file on disk that can be missing, corrupt, or hand-edited —
+    # its absence means there's no "list below" to point at, so the empty text differs.
     _table(lines, "Cross-PR collisions",
            ["PR", "Status", "Symbol", "Paths", "Evidence", "Detail", "Confidence"],
            [[f"#{c.get('pr', '?')}", c.get("status", "-"),
@@ -128,24 +136,21 @@ def build_report(snapshot: dict, claims: list[dict], findings: dict,
              _cell(c.get("detail", "")),
              _confidence(c.get("confidence"))]
             for c in findings.get("cross_pr", [])],
-           empty="- No collision found with the open pull requests listed below.")
+           empty=("- No collision found with the open pull requests listed below."
+                  if have_siblings else "- No cross-PR collision was reported."))
 
-    try:
-        siblings = json.loads((session_dir / "siblings.json").read_text())
-    except (OSError, json.JSONDecodeError):
-        siblings = None
-    if isinstance(siblings, dict):
+    if have_siblings:
         # Absence of siblings.json (older session, or the scan disabled) means the
         # section doesn't appear at all — distinct from having scanned and found nothing.
         _table(lines, "Parallel open pull requests",
                ["PR", "Author", "Overlap", "Files", "Updated"],
-               [[f"[#{s.get('pr', '?')}]({s.get('url', '')})",
+               [[_cell(f"[#{s.get('pr', '?')}]({s.get('url', '')})"),
                  _cell(s.get("author", "")),
                  "same file" if s.get("overlap") == "file" else "same module",
                  _cell(", ".join(s.get("overlap_paths") or [])),
                  _cell(s.get("updated_at", ""))]
                 for s in siblings.get("siblings") or []],
-               empty=f"- {siblings.get('skipped') or 'none found'}")
+               empty=f"- {_cell(siblings.get('skipped') or 'none found')}")
         note = f"- Scanned {siblings.get('scanned', 0)} open pull request(s)."
         if siblings.get("truncated"):
             note += " The scan was capped, so this list may be incomplete."

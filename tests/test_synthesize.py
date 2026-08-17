@@ -230,3 +230,4 @@ def test_a_truncated_scan_says_so(tmp_path):
 def test_a_report_without_a_sibling_scan_omits_the_section(tmp_path):
     report = build_report(SNAPSHOT, [], FINDINGS, [], tmp_path)
     assert "## Parallel open pull requests" not in report
+    assert "listed below" not in report
