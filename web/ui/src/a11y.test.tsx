@@ -128,6 +128,7 @@ async function render(path: string) {
 
 beforeEach(() => {
   ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+  localStorage.removeItem('pr-sentinel-lang')
   vi.stubGlobal('fetch', mockFetch())
   vi.stubGlobal('matchMedia', () => ({
     matches: false, addEventListener() {}, removeEventListener() {},
@@ -166,6 +167,23 @@ describe('accessibility basics', () => {
   it('sets the theme attribute on the document element', async () => {
     await render('/')
     expect(['light', 'dark']).toContain(document.documentElement.dataset.theme)
+  })
+
+  it('declares the document language and updates it when the switcher is used', async () => {
+    await render('/')
+    expect(['en', 'vi']).toContain(document.documentElement.lang)
+
+    const button = Array.from(container.querySelectorAll('button'))
+      .find((b) => ['EN', 'VI'].includes((b.textContent ?? '').trim())) as HTMLButtonElement
+    expect(button).toBeDefined()
+
+    const before = document.documentElement.lang
+    await act(async () => { button.click() })
+
+    // A screen reader pronounces the page by this attribute; a Vietnamese
+    // interface under lang="en" is read out in the wrong phonology.
+    expect(document.documentElement.lang).not.toBe(before)
+    expect(button.getAttribute('aria-label')).toBeTruthy()
   })
 
   // The '/' route above only ever mounts the header's theme toggle — an

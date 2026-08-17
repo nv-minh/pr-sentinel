@@ -2,6 +2,7 @@ import { Config } from './pages/Config'
 import { PrDetail } from './pages/PrDetail'
 import { RepoDetail } from './pages/RepoDetail'
 import { Repos } from './pages/Repos'
+import { useLang, useT } from './i18n'
 import { navigate, useRoute } from './router'
 import { useTheme } from './theme'
 
@@ -19,6 +20,8 @@ const NAV_LINK =
 export function App() {
   const route = useRoute()
   const [theme, toggleTheme] = useTheme()
+  const [lang, setLang] = useLang()
+  const t = useT()
 
   return (
     <div className="mx-auto max-w-[1120px] px-7 pb-24 max-[620px]:px-4 max-[620px]:pb-16">
@@ -30,18 +33,25 @@ export function App() {
         <nav className="ml-auto flex items-center gap-[18px]">
           <a {...link('/')} className={NAV_LINK}
              aria-current={route.name === 'repos' ? 'page' : undefined}>
-            Repos
+            {t('nav.repos')}
           </a>
           <a {...link('/config')} className={NAV_LINK}
              aria-current={route.name === 'config' ? 'page' : undefined}>
-            Config
+            {t('nav.config')}
           </a>
           <button
             className="rounded border border-hairline-strong px-[9px] py-1 font-mono text-[12px] uppercase tracking-[0.08em] text-ink-muted hover:border-ink-muted hover:text-ink"
-            onClick={toggleTheme}
-            aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}
+            onClick={() => setLang(lang === 'vi' ? 'en' : 'vi')}
+            aria-label={lang === 'vi' ? t('nav.langSwitchToEn') : t('nav.langSwitchToVi')}
           >
-            {theme === 'dark' ? 'Light' : 'Dark'}
+            {lang === 'vi' ? 'EN' : 'VI'}
+          </button>
+          <button
+            className="rounded border border-hairline-strong px-[9px] py-1 font-mono text-[12px] uppercase tracking-[0.08em] text-ink-muted hover:border-ink-muted hover:text-ink"
+            onClick={toggleTheme}
+            aria-label={theme === 'dark' ? t('nav.themeSwitchToLight') : t('nav.themeSwitchToDark')}
+          >
+            {theme === 'dark' ? t('nav.themeLight') : t('nav.themeDark')}
           </button>
         </nav>
       </header>
