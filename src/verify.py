@@ -6,6 +6,7 @@ remembering to call a write tool.
 """
 import json
 import subprocess
+import sys
 from pathlib import Path
 
 from agent import BASH_TOOLS, READ_ONLY_TOOLS, record_usage
@@ -20,6 +21,8 @@ CONTRACT_KIND = ["API", "SCHEMA", "TYPE", "PROTO"]
 CONTRACT_STATUS = ["COMPATIBLE", "BREAKING_API_CHANGE", "SCHEMA_MIGRATION_RISK"]
 ASSERTION_QUALITY = ["STRONG", "WEAK", "MISSING"]
 THREAD_STATUS = ["RESOLVED", "STILL_VALID", "FIXED", "OUTDATED"]
+CROSS_PR_STATUS = ["NO_CONFLICT", "SEMANTIC_CONFLICT", "DUPLICATE_WORK",
+                   "MERGE_ORDER_RISK"]
 AREAS = ["payment", "auth", "data", "infra", "other"]
 
 LANGUAGES = {"en": "English", "vi": "Vietnamese"}
@@ -89,13 +92,25 @@ FINDINGS_SCHEMA = {
             "status": {"type": "string", "enum": THREAD_STATUS},
             "note": {"type": "string"},
         }, ["text", "status", "note"]),
+        "cross_pr": _array({
+            "pr": {"type": "integer", "description": "the other open PR's number"},
+            "status": {"type": "string", "enum": CROSS_PR_STATUS},
+            "symbol": {"type": "string",
+                       "description": "function/endpoint/column at stake, '' if none"},
+            "paths": _strings(),
+            "evidence": {**_strings(),
+                         "description": "file:line in THIS checkout — you cannot "
+                                        "cite lines of the other PR"},
+            "detail": {"type": "string"},
+            "confidence": {"type": "number", "description": "0.0-1.0"},
+        }, ["pr", "status", "symbol", "paths", "evidence", "detail", "confidence"]),
         "unresolved_questions": {
             **_strings(),
             "description": "questions for the human, each at most 20 words",
         },
     },
     "required": ["claims", "docs", "impact", "callers_outside_diff", "contracts",
-                 "tests", "threads", "unresolved_questions"],
+                 "tests", "threads", "cross_pr", "unresolved_questions"],
 }
 
 SYSTEM_PROMPT = (
@@ -233,10 +248,16 @@ Do not guess. Anything unproven is UNVERIFIED plus a question.
     return prompt
 
 
-def validate_findings(data: dict) -> dict:
-    """Defence in depth: the schema is enforced by the SDK, this catches the rest."""
+def validate_findings(data: dict, sibling_numbers: set[int] | None = None) -> dict:
+    """Defence in depth: the schema is enforced by the SDK, this catches the rest.
+
+    `cross_pr` is required of the model but tolerated as absent here: a
+    findings.json written before the sibling scan existed must still validate,
+    score and render.
+    """
     if not isinstance(data, dict):
         raise RuntimeError("invalid findings: must be a JSON object")
+    data.setdefault("cross_pr", [])
     for key in FINDINGS_SCHEMA["required"]:
         if not isinstance(data.get(key), list):
             raise RuntimeError(f"invalid findings: missing key {key} (must be a list)")
@@ -249,6 +270,20 @@ def validate_findings(data: dict) -> dict:
     for c in data["contracts"]:
         if c.get("status") not in CONTRACT_STATUS:
             raise RuntimeError(f"invalid findings: contract has invalid schema: {c}")
+    for c in data["cross_pr"]:
+        if c.get("status") not in CROSS_PR_STATUS:
+            raise RuntimeError(f"invalid findings: cross_pr has invalid schema: {c}")
+    if sibling_numbers is not None:
+        kept = []
+        for c in data["cross_pr"]:
+            if c.get("pr") in sibling_numbers:
+                kept.append(c)
+            else:
+                # An invented PR number is a hallucination, not a schema break:
+                # drop it, say so, and let the rest of the review stand.
+                print(f"[verify] dropped cross_pr entry citing unknown PR "
+                      f"#{c.get('pr')}", file=sys.stderr)
+        data["cross_pr"] = kept
     return data
 
 

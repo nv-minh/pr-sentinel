@@ -103,7 +103,9 @@ def test_run_verify_persists_findings_and_session(tmp_path):
                           SNAPSHOT, [], runner=runner)
 
     assert findings["claims"][0]["id"] == "C1"
-    assert json.loads((session_dir / "findings.json").read_text()) == FINDINGS
+    # validate_findings backfills cross_pr, so the on-disk copy gains that key.
+    assert json.loads((session_dir / "findings.json").read_text()) == {
+        **FINDINGS, "cross_pr": []}
     assert json.loads((session_dir / "verify-meta.json").read_text()) == {
         "session_id": "sess-1", "head_sha": "abc123"}
     assert json.loads((session_dir / "usage.json").read_text())[0]["cost_usd"] == 0.3
@@ -301,3 +303,51 @@ def test_run_verify_forwards_the_language(tmp_path):
     run_verify({"model": "m", "language": "vi"}, tmp_path / "ws", tmp_path / "s",
                SNAPSHOT, [], runner=runner)
     assert "Vietnamese" in captured["prompt"]
+
+
+def _collision(pr=456, status="SEMANTIC_CONFLICT", confidence=0.8):
+    return {"pr": pr, "status": status, "symbol": "createInvoice",
+            "paths": ["src/payment/invoice.py"],
+            "evidence": ["src/payment/invoice.py:42"],
+            "detail": "PR #456: renamed the parameter this call passes",
+            "confidence": confidence}
+
+
+def test_cross_pr_is_part_of_the_schema():
+    assert "cross_pr" in FINDINGS_SCHEMA["properties"]
+    assert "cross_pr" in FINDINGS_SCHEMA["required"]
+
+
+def test_validate_accepts_a_collision():
+    data = validate_findings({**FINDINGS, "cross_pr": [_collision()]})
+    assert data["cross_pr"][0]["pr"] == 456
+
+
+def test_validate_normalises_findings_written_before_this_feature():
+    # sessions/demo and every findings.json already on disk lack the key
+    assert validate_findings(dict(FINDINGS))["cross_pr"] == []
+
+
+def test_validate_rejects_an_unknown_collision_status():
+    with pytest.raises(RuntimeError, match="cross_pr"):
+        validate_findings({**FINDINGS,
+                           "cross_pr": [_collision(status="MAYBE")]})
+
+
+def test_validate_drops_a_collision_naming_a_pr_that_was_not_scanned(capsys):
+    data = validate_findings({**FINDINGS, "cross_pr": [_collision(pr=999)]},
+                             sibling_numbers={456})
+    assert data["cross_pr"] == []
+    assert "999" in capsys.readouterr().err
+
+
+def test_validate_keeps_a_collision_naming_a_scanned_pr():
+    data = validate_findings({**FINDINGS, "cross_pr": [_collision(pr=456)]},
+                             sibling_numbers={456})
+    assert len(data["cross_pr"]) == 1
+
+
+def test_validate_without_a_sibling_set_checks_no_pr_numbers():
+    # threads.py revalidates carried-forward findings and has no sibling list
+    data = validate_findings({**FINDINGS, "cross_pr": [_collision(pr=999)]})
+    assert len(data["cross_pr"]) == 1
