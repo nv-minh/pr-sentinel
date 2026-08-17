@@ -3,6 +3,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { App } from './App'
+import { setLang } from './i18n'
 // PrDetail lazy-loads this module (`lazy(() => import('../graph/PipelineGraph'))`)
 // on first mount. Importing it here too, eagerly, warms the same module-graph
 // entry ahead of time so the PR route's flush loop below reliably observes it
@@ -148,6 +149,11 @@ afterEach(() => {
   container?.remove()
   vi.unstubAllGlobals()
 })
+
+// Runs whether or not the test body above threw, so a Vietnamese switch that
+// never reaches its own switch-back (a failed assertion mid-test) still
+// cannot leak into the next test in this file or any file after it.
+afterEach(() => act(() => setLang('en')))
 
 function unnamedButtons(): HTMLButtonElement[] {
   return Array.from(container.querySelectorAll('button')).filter(

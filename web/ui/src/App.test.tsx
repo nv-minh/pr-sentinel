@@ -3,6 +3,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { App } from './App'
+import { setLang } from './i18n'
 
 const REPO = {
   owner: 'demo', repo: 'app', prs_total: 2, bugs_total: 6, doc_errors_total: 3,
@@ -142,6 +143,11 @@ afterEach(() => {
   container?.remove()
   vi.unstubAllGlobals()
 })
+
+// Runs whether or not the test body above threw, so a Vietnamese switch that
+// never reaches its own switch-back (a failed assertion mid-test) still
+// cannot leak into the next test in this file or any file after it.
+afterEach(() => act(() => setLang('en')))
 
 describe('App', () => {
   it('renders the repo ledger', async () => {

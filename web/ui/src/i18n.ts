@@ -50,17 +50,20 @@ export function translate(target: Lang, key: Key, vars?: Vars): string {
     name in vars ? String(vars[name]) : match)
 }
 
+/** Sets the current language. A standalone function rather than something
+ *  only reachable through the hook, so tests can reset the module-level store
+ *  from an `afterEach` without mounting a component. */
+export function setLang(next: Lang) {
+  lang = next
+  write(next)
+  listeners.forEach((listener) => listener())
+}
+
 /** The current language, and a setter. A setter rather than a toggle: a
  *  language is not binary, and a toggle would have to be rewritten the first
  *  time a third one is added. */
 export function useLang(): [Lang, (next: Lang) => void] {
-  const value = useSyncExternalStore(subscribe, getSnapshot)
-  const set = useCallback((next: Lang) => {
-    lang = next
-    write(next)
-    listeners.forEach((listener) => listener())
-  }, [])
-  return [value, set]
+  return [useSyncExternalStore(subscribe, getSnapshot), setLang]
 }
 
 /** The translator, bound to the current language and re-created when it

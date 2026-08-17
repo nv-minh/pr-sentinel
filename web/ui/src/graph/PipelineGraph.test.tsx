@@ -4,7 +4,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import PipelineGraph from './PipelineGraph'
 import type { Pipeline } from '../api'
-import { useLang } from '../i18n'
+import { setLang, useLang } from '../i18n'
 
 const PIPELINE: Pipeline = {
   running: false,
@@ -46,8 +46,8 @@ beforeEach(() => {
   // stop a same-file leak: i18n.ts only re-reads localStorage while its
   // module-level `lang` is still null, so once a render has initialized it,
   // clearing storage has no effect on the cached value. What actually
-  // prevents the Vietnamese test below leaking into later tests is its own
-  // explicit switch back to 'en'.
+  // prevents the Vietnamese test below leaking into later tests (or into
+  // other files) is the `afterEach(() => act(() => setLang('en')))` below.
   localStorage.clear()
   // React Flow measures its container; jsdom reports zeroes without this.
   vi.stubGlobal('ResizeObserver', class {
@@ -65,6 +65,11 @@ afterEach(() => {
   container?.remove()
   vi.unstubAllGlobals()
 })
+
+// Runs whether or not the test body above threw, so a Vietnamese switch that
+// never reaches its own switch-back (a failed assertion mid-test) still
+// cannot leak into the next test in this file or any file after it.
+afterEach(() => act(() => setLang('en')))
 
 function render(node: React.ReactNode) {
   container = document.createElement('div')
