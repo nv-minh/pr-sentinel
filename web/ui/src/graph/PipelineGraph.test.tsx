@@ -4,6 +4,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import PipelineGraph from './PipelineGraph'
 import type { Pipeline } from '../api'
+import { useLang } from '../i18n'
 
 const PIPELINE: Pipeline = {
   running: false,
@@ -26,8 +27,22 @@ const PIPELINE: Pipeline = {
 let container: HTMLDivElement
 let root: Root
 
+// Drives the real store the way the header does, rather than reaching into
+// the module — the test stays blind to how the store is implemented (same
+// pattern as components.test.tsx's LangSwitcher).
+function LangSwitcher() {
+  const [, setLang] = useLang()
+  return (
+    <>
+      <button type="button" data-testid="to-vi" onClick={() => setLang('vi')}>vi</button>
+      <button type="button" data-testid="to-en" onClick={() => setLang('en')}>en</button>
+    </>
+  )
+}
+
 beforeEach(() => {
   ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+  localStorage.clear()
   // React Flow measures its container; jsdom reports zeroes without this.
   vi.stubGlobal('ResizeObserver', class {
     observe() {}
@@ -105,5 +120,28 @@ describe('PipelineGraph', () => {
     const button = container.querySelector('[data-phase="claims"]') as HTMLButtonElement
     act(() => { button.click() })
     expect(picked).toEqual(['claims'])
+  })
+
+  it('translates phase and status labels in the text equivalent under Vietnamese', () => {
+    render(
+      <>
+        <LangSwitcher />
+        <PipelineGraph pipeline={PIPELINE} selected={null} onSelect={() => {}} />
+      </>,
+    )
+    const list = () => container.querySelector('[data-testid="pipeline-text"]')!
+
+    act(() => { (container.querySelector('[data-testid="to-vi"]') as HTMLButtonElement).click() })
+
+    expect(list().textContent).toContain('Ảnh chụp') // graph.phase.snapshot
+    expect(list().textContent).toContain('xong') // graph.statusDone
+    expect(list().textContent).not.toContain('Snapshot')
+    expect(list().textContent).not.toContain('done')
+
+    // Switch back inside the test: the store is module-level, so leaving it on
+    // 'vi' would hand the next test in this file a Vietnamese pipeline text
+    // equivalent and break the earlier English assertions.
+    act(() => { (container.querySelector('[data-testid="to-en"]') as HTMLButtonElement).click() })
+    expect(list().textContent).toContain('Snapshot')
   })
 })
