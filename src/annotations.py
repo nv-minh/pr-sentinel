@@ -7,7 +7,8 @@ API will accept, then resolves each finding against it.
 It also means the most valuable finding type is the least placeable.
 `callers_outside_diff` is, by definition, about code this PR did not touch — so
 the caller sites can never be inline, and the best available anchor is the
-changed symbol's own definition.
+changed symbol's own definition. Similarly, cross-PR collisions anchor on this
+PR's file, because the other PR's lines are not in this diff at all.
 
 Pure functions over the snapshot and findings, like score.py: no I/O, no network.
 """
@@ -97,6 +98,22 @@ def candidates(findings: dict) -> list[dict]:
         out.append({"path": contract["path"], "line": None,
                     "body": f"**{contract['status']}** ({contract.get('kind', '?')})\n\n"
                             f"{contract.get('detail', '')}"})
+
+    for collision in findings.get("cross_pr") or []:
+        if collision.get("status") in (None, "NO_CONFLICT"):
+            continue
+        number = collision.get("pr", "?")
+        evidence = collision.get("evidence") or []
+        ref = next((parse_ref(e) for e in evidence if parse_ref(e)), None)
+        # As above: an unanchorable collision still reaches the summary comment.
+        path, line = ref if ref else (_file_of(evidence[0]) if evidence else "", None)
+        out.append({"path": path, "line": line,
+                    "body": f"**⚠️ Potential cross-PR collision — "
+                            f"{collision['status']} with #{number}**\n\n"
+                            f"`{collision.get('symbol') or 'this code'}` — "
+                            f"{collision.get('detail', '')}\n\n"
+                            f"Also being changed in #{number}, which is still open. "
+                            f"Neither PR's CI can see the other."})
 
     for test in findings.get("tests") or []:
         if test.get("assertion_quality") not in ("WEAK", "MISSING"):
