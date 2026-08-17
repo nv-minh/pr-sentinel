@@ -5,7 +5,13 @@
    Status vocabulary (PASS, STALE, BREAKING_API_CHANGE …) is absent on purpose:
    those are enum values from the findings schema, they appear verbatim in the
    comment posted to GitHub, and a translated dashboard label would no longer
-   match the pull request it describes. */
+   match the pull request it describes.
+
+   Repo mode values (`auto`, `manual`) are absent for the same reason: they are
+   the literal values an operator writes in prsentinel.yml and picks from
+   Config.tsx's mode select, so Repos.tsx's "AUTO" badge (repos with no data
+   yet) stays English rather than disagreeing with the YAML and the dropdown
+   it mirrors. */
 
 const en = {
   'nav.repos': 'Repos',

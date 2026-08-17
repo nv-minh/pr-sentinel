@@ -74,6 +74,10 @@ export function Repos() {
                 status="UNVERIFIED"
                 title={`${r.owner}/${r.repo}`}
                 meta={t('repos.waitingMeta')}
+                // `auto` is the literal repo mode from prsentinel.yml, the
+                // same value Config.tsx's mode select shows — see the note
+                // in strings.ts. It stays English rather than getting a
+                // dictionary key.
                 right="AUTO"
                 onClick={() => navigate(`/repos/${r.owner}/${r.repo}`)}
               />

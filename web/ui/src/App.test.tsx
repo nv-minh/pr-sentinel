@@ -13,6 +13,25 @@ const REPO = {
   prs: [], open_prs: [], open_questions: 1,
 }
 
+// A repo detail fixture with an open PR, used only by the Vietnamese
+// RepoDetail test below: the shared REPO fixture's open_prs is empty, which
+// is enough for the English tests but leaves nothing to exercise the
+// interpolated round/bugs text in a PR row's meta line.
+const REPO_WITH_OPEN_PR = {
+  ...REPO,
+  open_prs: [
+    { pr: 9, title: 'Add caching', draft: false, status: 'reviewed' as const,
+      rounds: 2, bugs: 3, doc_errors: 1, unavailable: false },
+  ],
+  prs: [
+    { pr: 9, title: 'Add caching', author: 'dev1', base: 'main', head: 'feat/cache',
+      verdict: 'ACCURATE', gate: 'pass' as const, verification_score: 0.8, business_risk: 'low',
+      gate_reasons: [], cost_usd: 0.1, breaking: 0, test_gaps: 0, callers_at_risk: 0,
+      claims_total: 2, bugs: 3, doc_errors: 1, open_questions: 0, rounds: 2,
+      updated_at: '2026-08-17 09:00' },
+  ],
+}
+
 const PR = {
   reviewed: true, owner: 'demo', repo: 'app',
   pr: { pr: 8, title: 'Speed up checkout', author: 'dev2', base: 'main',
@@ -45,6 +64,28 @@ function mockFetch() {
       : {}
     return { ok: true, json: async () => body } as Response
   })
+}
+
+function mockFetchWithOpenPr() {
+  return vi.fn(async (input: RequestInfo | URL) => {
+    const url = String(input)
+    const body =
+      url === '/api/repos' ? { repos: [REPO_WITH_OPEN_PR] }
+      : url.includes('/review/status') ? { running: false, stale: false }
+      : url.endsWith('/demo/app') ? REPO_WITH_OPEN_PR
+      : {}
+    return { ok: true, json: async () => body } as Response
+  })
+}
+
+// Flips the header's real language button — the same element the user
+// clicks — rather than reaching into the i18n module, so this stays blind to
+// how the store is implemented (same reasoning as components.test.tsx's
+// LangSwitcher, applied to the switcher the app actually ships).
+function clickLangToggle() {
+  const btn = Array.from(container.querySelectorAll('button'))
+    .find((b) => b.textContent === 'VI' || b.textContent === 'EN') as HTMLButtonElement
+  act(() => { btn.click() })
 }
 
 let container: HTMLDivElement
@@ -104,5 +145,41 @@ describe('App', () => {
     await act(async () => { contracts.click() })
     expect(container.textContent).toContain('db/migrations/0042.sql')
     expect(container.textContent).toContain('SCHEMA_MIGRATION_RISK')
+  })
+
+  it('renders the repo ledger in Vietnamese, with numbers landing inside their sentence', async () => {
+    await render('/')
+    expect(container.textContent).toContain('6 bugs')
+
+    clickLangToggle()
+
+    expect(container.textContent).toContain('Kho mã đã review')
+    expect(container.textContent).toContain('6 lỗi') // repos.bugs, interpolated
+    expect(container.textContent).toContain('50% đã xác minh') // repos.verified, interpolated
+    expect(container.textContent).not.toContain('Reviewed repositories')
+    expect(container.textContent).not.toContain('6 bugs')
+
+    // Switch back inside the test: `lang` is module-level (see i18n.ts), so
+    // leaving it on 'vi' would hand the next test in this file a Vietnamese
+    // App and break its English assertions.
+    clickLangToggle()
+    expect(container.textContent).toContain('6 bugs')
+    expect(container.textContent).toContain('50% verified')
+  })
+
+  it('renders the repo detail page in Vietnamese, with a round count landing inside its sentence', async () => {
+    vi.stubGlobal('fetch', mockFetchWithOpenPr())
+    await render('/repos/demo/app')
+    expect(container.textContent).toContain('Merge decisions')
+
+    clickLangToggle()
+
+    expect(container.textContent).toContain('Quyết định merge')
+    expect(container.textContent).toContain('2 vòng') // repo.roundMany, interpolated
+    expect(container.textContent).toContain('3 lỗi') // repo.prBugs, interpolated
+    expect(container.textContent).not.toContain('Merge decisions')
+
+    clickLangToggle()
+    expect(container.textContent).toContain('Merge decisions')
   })
 })
