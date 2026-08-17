@@ -1,12 +1,14 @@
 import type { PhaseStatus } from '../api'
 import type { Tone } from '../status'
 
-/** Hand-placed, not auto-laid-out: ten fixed phases in a shape that reads
- *  left-to-right, with the reply loop above the spine and the doc-fix and
- *  PoC-test branches below it. A layout engine would only make this move
- *  around between runs. */
+/** Hand-placed, not auto-laid-out: eleven fixed phases in a shape that reads
+ *  left-to-right, with the reply loop above the spine, the sibling scan below
+ *  the spine on the left as an input to Verify, and the doc-fix and PoC-test
+ *  branches below it on the right as outputs. A layout engine would only make
+ *  this move around between runs. */
 export const POSITION: Record<string, { x: number; y: number }> = {
   snapshot: { x: 0, y: 130 },
+  siblings: { x: 185, y: 262 },
   describe: { x: 185, y: 130 },
   claims: { x: 370, y: 130 },
   followup: { x: 370, y: 0 },
@@ -38,6 +40,7 @@ export const STATUS_WORD: Record<PhaseStatus, string> = {
  *  nearest one that actually shows their output. */
 export const NODE_TAB: Record<string, string> = {
   snapshot: 'context',
+  siblings: 'crosspr',
   describe: 'context',
   claims: 'claims',
   followup: 'threads',

@@ -13,7 +13,7 @@ import { GATE_WORD, formatCost, formatScore } from '../status'
 const PipelineGraph = lazy(() => import('../graph/PipelineGraph'))
 
 type TabKey =
-  | 'claims' | 'docs' | 'impact' | 'callers' | 'contracts' | 'tests'
+  | 'claims' | 'docs' | 'impact' | 'callers' | 'contracts' | 'crosspr' | 'tests'
   | 'threads' | 'confirm' | 'context'
 
 const TABS: { key: TabKey; label: string }[] = [
@@ -22,6 +22,7 @@ const TABS: { key: TabKey; label: string }[] = [
   { key: 'impact', label: 'Impact' },
   { key: 'callers', label: 'Callers' },
   { key: 'contracts', label: 'Contracts' },
+  { key: 'crosspr', label: 'Cross-PR' },
   { key: 'tests', label: 'Tests' },
   { key: 'threads', label: 'Threads' },
   { key: 'confirm', label: 'Confirm' },
@@ -133,6 +134,7 @@ export function PrDetail({ owner, repo, pr }: { owner: string; repo: string; pr:
     impact: data.impact?.length ?? 0,
     callers: data.callers?.length ?? 0,
     contracts: data.contracts?.length ?? 0,
+    crosspr: data.cross_pr?.length ?? 0,
     tests: data.tests?.length ?? 0,
     threads: data.threads?.length ?? 0,
     confirm: data.answers?.length ?? 0,
@@ -303,6 +305,20 @@ export function PrDetail({ owner, repo, pr }: { owner: string; repo: string; pr:
                        meta={c.detail} right={c.kind} />
                 ))
               : <Empty>No API, schema, type or proto contract was touched.</Empty>)}
+
+            {tab === 'crosspr' && (data.cross_pr?.length
+              ? data.cross_pr.map((c, i) => (
+                  <Row key={i} status={c.status}
+                       title={<>{c.symbol || `#${c.pr}`} <StatusWord status={c.status} /></>}
+                       meta={<><Citations items={c.evidence} /> {c.detail}</>}
+                       right={`#${c.pr}`} />
+                ))
+              : <Empty>
+                  {data.siblings?.siblings?.length
+                    ? 'No collision found with the open pull requests that overlap this one.'
+                    : data.siblings?.skipped
+                      || 'No overlapping open pull request was scanned.'}
+                </Empty>)}
 
             {tab === 'tests' && (data.tests?.length
               ? data.tests.map((t, i) => (
