@@ -1,7 +1,9 @@
 import type { ReactNode } from 'react'
 import { Skeleton } from '@/components/ui/skeleton'
+import { useT } from './i18n'
 import { GLYPH, TONE_COLOR, bandSegments, toneOf } from './status'
 import type { Tone } from './status'
+import type { Key } from './strings'
 
 export function Mark({ status }: { status: string }) {
   const tone = toneOf(status)
@@ -73,12 +75,14 @@ export function PageSub({ children }: { children: ReactNode }) {
  *  carries its own count, and the legend repeats glyph + word, so the reading
  *  never depends on telling amber from red. */
 export function GateBand({ counts }: { counts: Record<string, number> | undefined }) {
+  const t = useT()
   const segments = bandSegments(counts)
+  const word = (seg: { key: Tone }) => t(`gate.${seg.key}` as Key)
   if (!segments.length) {
     return (
       <div className="my-2.5 flex h-[34px] gap-0.5">
         <div className="flex flex-1 items-center justify-center rounded-sm border border-dashed border-hairline-strong font-mono text-xs text-ink-muted">
-          No scored reviews yet
+          {t('band.empty')}
         </div>
       </div>
     )
@@ -86,13 +90,13 @@ export function GateBand({ counts }: { counts: Record<string, number> | undefine
   return (
     <>
       <div className="mt-1 mb-2.5 flex h-[34px] gap-0.5" role="img"
-           aria-label={segments.map((s) => `${s.count} ${s.label}`).join(', ')}>
+           aria-label={segments.map((s) => `${s.count} ${word(s)}`).join(', ')}>
         {segments.map((seg) => (
           <div
             key={seg.key}
             className="band-seg flex min-w-0.5 items-center justify-center rounded-sm font-mono text-xs font-semibold text-white"
             style={{ flex: seg.share, background: TONE_COLOR[seg.key] }}
-            title={`${seg.label}: ${seg.count}`}
+            title={`${word(seg)}: ${seg.count}`}
           >
             {seg.share > 0.08 ? seg.count : ''}
           </div>
@@ -102,7 +106,7 @@ export function GateBand({ counts }: { counts: Record<string, number> | undefine
         {segments.map((seg) => (
           <span className="flex items-center gap-[7px]" key={seg.key}>
             <ToneDot tone={seg.key} />
-            {GLYPH[seg.key]} {seg.label} · {seg.count}
+            {GLYPH[seg.key]} {word(seg)} · {seg.count}
           </span>
         ))}
       </div>
@@ -150,7 +154,8 @@ export function Row({
 }
 
 export function Citations({ items }: { items: string[] }) {
-  if (!items?.length) return <span>no evidence cited</span>
+  const t = useT()
+  if (!items?.length) return <span>{t('citations.none')}</span>
   return (
     <>
       {items.map((item, i) => (
@@ -184,10 +189,11 @@ export function ToneDot({ tone }: { tone: Tone }) {
 
 /** Three skeleton rows: the page keeps its shape while the fetch lands, so the
  *  layout does not jump when it does. */
-export function Loading({ label = 'Loading' }: { label?: string }) {
+export function Loading({ label }: { label?: string }) {
+  const t = useT()
   return (
     <div className="space-y-2 py-4" role="status" aria-live="polite">
-      <span className="sr-only">{label}…</span>
+      <span className="sr-only">{label ?? t('common.loading')}…</span>
       <Skeleton className="h-6 w-1/3" />
       <Skeleton className="h-4 w-2/3" />
       <Skeleton className="h-4 w-1/2" />

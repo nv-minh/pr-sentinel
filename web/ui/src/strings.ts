@@ -17,6 +17,16 @@ const en = {
   'nav.langSwitchToVi': 'Chuyển giao diện sang tiếng Việt',
   'nav.langSwitchToEn': 'Switch interface to English',
   'repos.bugs': '{n} bugs',
+  'gate.pass': 'Clear to merge',
+  'gate.warn': 'Merge with care',
+  'gate.fail': 'Blocked',
+  'gate.unknown': 'Not scored',
+  'band.empty': 'No scored reviews yet',
+  'common.loading': 'Loading',
+  'common.yes': 'yes',
+  'common.no': 'no',
+  'common.noTitle': '(no title)',
+  'citations.none': 'no evidence cited',
 }
 
 const vi: Record<keyof typeof en, string> = {
@@ -29,6 +39,16 @@ const vi: Record<keyof typeof en, string> = {
   'nav.langSwitchToVi': 'Chuyển giao diện sang tiếng Việt',
   'nav.langSwitchToEn': 'Switch interface to English',
   'repos.bugs': '{n} lỗi',
+  'gate.pass': 'Sẵn sàng merge',
+  'gate.warn': 'Merge có cân nhắc',
+  'gate.fail': 'Bị chặn',
+  'gate.unknown': 'Chưa chấm điểm',
+  'band.empty': 'Chưa có review nào được chấm điểm',
+  'common.loading': 'Đang tải',
+  'common.yes': 'có',
+  'common.no': 'không',
+  'common.noTitle': '(không có tiêu đề)',
+  'citations.none': 'không có bằng chứng nào được dẫn',
 }
 
 export type Key = keyof typeof en

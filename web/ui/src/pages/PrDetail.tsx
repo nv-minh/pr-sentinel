@@ -7,7 +7,9 @@ import {
   StatusWord, Tile, Tiles,
 } from '../components'
 import { NODE_TAB } from '../graph/layout'
-import { GATE_WORD, formatCost, formatScore } from '../status'
+import { useT } from '../i18n'
+import { formatCost, formatScore } from '../status'
+import type { Key } from '../strings'
 
 // React Flow is ~100 kB gzipped and only this route needs it.
 const PipelineGraph = lazy(() => import('../graph/PipelineGraph'))
@@ -67,6 +69,7 @@ const BLOCKING: {
 ]
 
 export function PrDetail({ owner, repo, pr }: { owner: string; repo: string; pr: number }) {
+  const t = useT()
   const [data, setData] = useState<Detail | null>(null)
   const [status, setStatus] = useState<ReviewStatus | null>(null)
   const [log, setLog] = useState('')
@@ -169,7 +172,7 @@ export function PrDetail({ owner, repo, pr }: { owner: string; repo: string; pr:
       ) : (
         <>
           <Tiles>
-            <Tile label="Gate" value={<StatusWord status={gate} />} note={GATE_WORD[gate]} />
+            <Tile label="Gate" value={<StatusWord status={gate} />} note={t(`gate.${gate}` as Key)} />
             <Tile label="Verified" value={formatScore(score.verification_score ?? rec?.verification_score)}
                   note="claims with file:line" />
             <Tile label="Verdict" value={<StatusWord status={rec?.verdict ?? ''} />}
