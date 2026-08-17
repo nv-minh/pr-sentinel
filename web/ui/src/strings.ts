@@ -2,9 +2,6 @@
    `vi` is typed as Record<keyof typeof en, string>, so a key added here and
    forgotten there is a `tsc -b` error, and `npm run build` runs tsc first.
 
-   Deliberately NOT typed as `typeof en` — that would infer literal types and
-   demand the Vietnamese values be identical to the English ones.
-
    Status vocabulary (PASS, STALE, BREAKING_API_CHANGE …) is absent on purpose:
    those are enum values from the findings schema, they appear verbatim in the
    comment posted to GitHub, and a translated dashboard label would no longer

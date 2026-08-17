@@ -73,8 +73,15 @@ describe('translate', () => {
     expect(translate('en', 'repos.bugs', { n: 6 })).toBe('6 bugs')
   })
 
-  it('leaves an unsupplied placeholder in place rather than printing undefined', () => {
+  it('returns the raw string unchanged when no vars object is given at all', () => {
     expect(translate('en', 'repos.bugs')).toBe('{n} bugs')
+  })
+
+  it('leaves an unsupplied placeholder in place rather than printing undefined', () => {
+    // A vars object that IS present, so this reaches the replace() callback's
+    // `name in vars ? ... : match` guard — unlike the no-vars case above,
+    // which returns before that callback ever runs.
+    expect(translate('en', 'repos.bugs', {})).toBe('{n} bugs')
   })
 })
 
