@@ -4,6 +4,7 @@ way it checks the rest of the dictionary — this test does it instead. A phase
 added to metrics.py without a Vietnamese label fails here rather than silently
 rendering English on a Vietnamese dashboard.
 """
+import ast
 import re
 from pathlib import Path
 
@@ -35,10 +36,34 @@ def test_every_phase_metric_has_a_translated_label():
     assert not missing, f"untranslated phase metrics: {missing}"
 
 
+def _metric_labels_from_metrics_py() -> set[str]:
+    """Every string literal bound to a "label" key in a dict literal inside
+    _phase_metrics(), found by walking the parsed AST rather than matching
+    text. Quote-agnostic by construction (unlike a regex keyed to one quote
+    style), and immune to reindentation or line-wrapping. Looking the
+    function up by name means a rename makes this raise instead of silently
+    finding zero dicts and passing on an empty set."""
+    source = (Path(__file__).resolve().parents[1] / "web" / "metrics.py").read_text()
+    tree = ast.parse(source)
+    func = next(
+        node for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef) and node.name == "_phase_metrics"
+    )
+    labels = set()
+    for node in ast.walk(func):
+        if not isinstance(node, ast.Dict):
+            continue
+        for key, value in zip(node.keys, node.values):
+            if (isinstance(key, ast.Constant) and key.value == "label"
+                    and isinstance(value, ast.Constant)
+                    and isinstance(value.value, str)):
+                labels.add(value.value)
+    return labels
+
+
 def test_the_metric_label_list_still_matches_metrics_py():
     """If _phase_metrics() grows a label, this fails before the two above do,
     pointing at the real edit rather than at a stale expectation."""
-    source = (Path(__file__).resolve().parents[1] / "web" / "metrics.py").read_text()
-    body = source.split("def _phase_metrics(")[1].split("\ndef ")[0]
-    found = set(re.findall(r'"label": "(\w+)"', body))
+    found = _metric_labels_from_metrics_py()
+    assert found, "AST walk found no labels — did _phase_metrics() move/change shape?"
     assert found == METRIC_LABELS

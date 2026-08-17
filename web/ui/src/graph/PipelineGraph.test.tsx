@@ -42,6 +42,12 @@ function LangSwitcher() {
 
 beforeEach(() => {
   ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+  // Starts each test from a clean persisted language. This alone does not
+  // stop a same-file leak: i18n.ts only re-reads localStorage while its
+  // module-level `lang` is still null, so once a render has initialized it,
+  // clearing storage has no effect on the cached value. What actually
+  // prevents the Vietnamese test below leaking into later tests is its own
+  // explicit switch back to 'en'.
   localStorage.clear()
   // React Flow measures its container; jsdom reports zeroes without this.
   vi.stubGlobal('ResizeObserver', class {
