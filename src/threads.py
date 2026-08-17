@@ -13,7 +13,7 @@ from agent import run_structured as _default_runner
 from gh import run_gh
 from session_store import FileSessionStore
 from synthesize import MARKER
-from verify import FINDINGS_SCHEMA, SYSTEM_PROMPT, validate_findings
+from verify import FINDINGS_SCHEMA, LANGUAGES, SYSTEM_PROMPT, validate_findings
 
 
 def _bot_comment(comments: list) -> dict | None:
@@ -125,7 +125,8 @@ def can_resume(session_dir: Path, session_id: str) -> bool:
 
 def build_followup_prompt(replies: list[dict], new_commits: list[dict],
                           previous_findings: dict | None = None,
-                          found: list[str] | None = None) -> str:
+                          found: list[str] | None = None,
+                          language: str = "en") -> str:
     quoted = "\n\n".join(
         f"[{r['source']}] {r['author']}"
         + (f" on {r['path']}" if r.get("path") else "") + ":\n"
@@ -142,7 +143,7 @@ def build_followup_prompt(replies: list[dict], new_commits: list[dict],
                    + untrusted.block("Previous findings",
                                      json.dumps(previous_findings, indent=2),
                                      found=found) + "\n")
-    return f"""
+    prompt = f"""
 The author replied to your review. The workspace is now at the latest commit.
 
 New commits since your review:
@@ -157,6 +158,10 @@ verdicts that did not change, update the ones that did, and drop questions the
 author has now answered. Evidence must still be real `file:line` references from
 the current code.
 """.strip()
+    if language not in ("", "en"):
+        name = LANGUAGES.get(language, language)
+        prompt += f"\n\nWrite every note, detail and question in {name}."
+    return prompt
 
 
 def run_followup(cfg: dict, workspace: Path, session_dir: Path, snapshot: dict,
@@ -180,7 +185,7 @@ def run_followup(cfg: dict, workspace: Path, session_dir: Path, snapshot: dict,
     found: list[str] = []
     result = runner(
         build_followup_prompt(replies, new_commits, previous_findings=carried,
-                              found=found),
+                              found=found, language=cfg.get("language", "en")),
         schema=FINDINGS_SCHEMA,
         cwd=workspace,
         tools=tools,

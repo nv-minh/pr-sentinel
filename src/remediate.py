@@ -15,6 +15,7 @@ import untrusted
 from agent import READ_ONLY_TOOLS, record_usage
 from agent import run_structured as _default_runner
 from gh import run_gh
+from verify import LANGUAGES
 
 FIXABLE_STATUSES = ("STALE", "WRONG", "FABRICATED")
 BRANCH_PREFIX = "pr-sentinel/docs"
@@ -55,14 +56,15 @@ def fixable_docs(findings: dict) -> list[dict]:
             if d.get("status") in FIXABLE_STATUSES and d.get("path")]
 
 
-def build_prompt(docs: list[dict], found: list[str] | None = None) -> str:
+def build_prompt(docs: list[dict], found: list[str] | None = None,
+                 language: str = "en") -> str:
     # `what` is the review agent's account of a doc, written from repository
     # content — second-hand, but the same provenance as the text it describes.
     listed = untrusted.block(
         "Doc findings",
         "\n".join(f"- {d['path']} ({d['status']}): {d.get('what', '')}" for d in docs),
         found=found)
-    return f"""
+    prompt = f"""
 A review found these documentation files out of sync with the code:
 
 {listed}
@@ -72,6 +74,15 @@ text replacement that makes the doc true. Copy `old_snippet` exactly as it
 appears in the file so it can be replaced programmatically — if you cannot
 reproduce it exactly, skip that file rather than guessing.
 """.strip()
+    if language not in ("", "en"):
+        name = LANGUAGES.get(language, language)
+        # Deliberately split: `new_snippet` is pasted into the file through a
+        # GitHub suggestion block, so translating it would rewrite the document
+        # in a language its readers did not choose.
+        prompt += (f"\n\nWrite `why` in {name}. Write `old_snippet` and "
+                   f"`new_snippet` in the same language as the document itself — "
+                   f"never translate the documentation text you are replacing.")
+    return prompt
 
 
 def draft_patches(findings: dict, cfg: dict, workspace: Path, session_dir: Path,
@@ -82,7 +93,7 @@ def draft_patches(findings: dict, cfg: dict, workspace: Path, session_dir: Path,
         return []
     found: list[str] = []
     result = runner(
-        build_prompt(docs, found=found),
+        build_prompt(docs, found=found, language=cfg.get("language", "en")),
         schema=PATCH_SCHEMA,
         cwd=workspace,
         tools=READ_ONLY_TOOLS,
