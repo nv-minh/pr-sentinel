@@ -24,6 +24,11 @@ AREAS = ["payment", "auth", "data", "infra", "other"]
 
 LANGUAGES = {"en": "English", "vi": "Vietnamese"}
 
+# Appended when the whole prompt's output should switch language. Shared with
+# threads.py's follow-up prompt, which re-generates this same findings object,
+# so the two stay in lockstep rather than drifting apart if reworded.
+LANGUAGE_CLAUSE = "\n\nWrite every note, detail and question in {name}."
+
 
 def _array(item_props: dict, required: list[str]) -> dict:
     return {"type": "array",
@@ -229,7 +234,7 @@ Do not guess. Anything unproven is UNVERIFIED plus a question.
 """.strip()
     if language not in ("", "en"):
         name = LANGUAGES.get(language, language)
-        prompt += (f"\n\nWrite every note, detail and question in {name}.")
+        prompt += LANGUAGE_CLAUSE.format(name=name)
     return prompt
 
 

@@ -76,12 +76,20 @@ reproduce it exactly, skip that file rather than guessing.
 """.strip()
     if language not in ("", "en"):
         name = LANGUAGES.get(language, language)
-        # Deliberately split: `new_snippet` is pasted into the file through a
-        # GitHub suggestion block, so translating it would rewrite the document
-        # in a language its readers did not choose.
-        prompt += (f"\n\nWrite `why` in {name}. Write `old_snippet` and "
-                   f"`new_snippet` in the same language as the document itself — "
-                   f"never translate the documentation text you are replacing.")
+        # Deliberately split, and `old_snippet` deliberately left out:
+        # `new_snippet` is pasted into the file through a GitHub suggestion
+        # block, so translating it would rewrite the document in a language
+        # its readers did not choose. `old_snippet` is already governed by the
+        # byte-for-byte copy rule above and in SYSTEM_PROMPT — telling the
+        # model what language to "write" it in would only invite regenerating
+        # it instead of copying it. "the document" is per-file: a batch can
+        # mix an English README with an already-Vietnamese doc, and each
+        # snippet must match the file it came from, not the configured
+        # language.
+        prompt += (f"\n\nWrite `why` in {name}. Write `new_snippet` in the "
+                   f"same language as the document each snippet comes from — "
+                   f"never translate the documentation text you are "
+                   f"replacing.")
     return prompt
 
 

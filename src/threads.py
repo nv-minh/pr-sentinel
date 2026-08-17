@@ -13,7 +13,8 @@ from agent import run_structured as _default_runner
 from gh import run_gh
 from session_store import FileSessionStore
 from synthesize import MARKER
-from verify import FINDINGS_SCHEMA, LANGUAGES, SYSTEM_PROMPT, validate_findings
+from verify import (FINDINGS_SCHEMA, LANGUAGE_CLAUSE, LANGUAGES, SYSTEM_PROMPT,
+                    validate_findings)
 
 
 def _bot_comment(comments: list) -> dict | None:
@@ -160,7 +161,7 @@ the current code.
 """.strip()
     if language not in ("", "en"):
         name = LANGUAGES.get(language, language)
-        prompt += f"\n\nWrite every note, detail and question in {name}."
+        prompt += LANGUAGE_CLAUSE.format(name=name)
     return prompt
 
 

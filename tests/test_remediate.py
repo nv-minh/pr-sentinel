@@ -4,6 +4,7 @@ from agent import AgentResult
 from remediate import (apply_to_workspace, build_prompt, comment_section,
                        diff_block, draft_patches, fixable_docs, suggestion_body,
                        suggestion_comments)
+from verify import LANGUAGE_CLAUSE
 
 FINDINGS = {"docs": [
     {"path": "docs/api.md", "status": "WRONG", "what": "says GET, code does POST"},
@@ -155,8 +156,10 @@ def test_a_vietnamese_doc_fix_translates_the_reason_but_not_the_document():
             or "document's own language" in lowered)
     # Guard against "simplifying" this into verify's blanket instruction, which
     # would translate old_snippet/new_snippet along with everything else and
-    # rewrite the user's documentation into the configured language.
-    assert "Write every note, detail and question in" not in prompt
+    # rewrite the user's documentation into the configured language. Asserted
+    # against the shared constant, not a hand-copied prefix, so the guard
+    # still tracks verify's sentence if that sentence is later reworded.
+    assert LANGUAGE_CLAUSE.format(name="Vietnamese") not in prompt
 
 
 def test_an_english_doc_fix_prompt_is_unchanged_by_the_default():
