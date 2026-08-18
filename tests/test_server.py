@@ -9,7 +9,11 @@ from autoreview_config import load_config
 from web.server import app
 
 SNAPSHOT = {"pr": 77, "title": "Google sign-in", "author": "dev1", "base": "main",
-            "head": "x", "files": [], "commits": [], "threads": [],
+            "head": "x", "base_sha": "b1", "head_sha": "h1",
+            "files": [{"filename": "a.dart", "status": "modified", "additions": 1,
+                       "deletions": 0, "patch": "@@ -1,2 +1,3 @@\n import io\n+import x\n main()"}],
+            "commits": [{"sha": "3c1d0aa", "message": "feat: sign-in"}],
+            "threads": [],
             "pruned": [{"filename": "yarn.lock", "reason": "lockfile", "dropped": True}]}
 
 FINDINGS = {
@@ -492,3 +496,140 @@ def test_graph_endpoint_serves_the_demo_session(monkeypatch):
 def test_graph_endpoint_404s_for_an_unknown_pr(tmp_path, monkeypatch):
     monkeypatch.setenv("PRS_SESSION_ROOT", str(tmp_path))
     assert TestClient(app).get("/api/repos/demo/app/pr/999/graph").status_code == 404
+
+
+# ------------------------------------------------------------- workspace data API
+
+def test_api_pr_files_serves_the_snapshot_slice(client):
+    data = client.get("/api/repos/sample-org/sample-app/pr/77/files").json()
+    assert data["files"][0]["filename"] == "a.dart"
+    assert data["files"][0]["patch"].startswith("@@ -1,2 +1,3 @@")
+    assert data["pruned"][0]["filename"] == "yarn.lock"
+    assert data["commits"][0]["sha"] == "3c1d0aa"
+    assert data["base_sha"] == "b1" and data["head_sha"] == "h1"
+
+
+def test_api_pr_files_404_without_snapshot(client):
+    assert client.get("/api/repos/sample-org/sample-app/pr/99/files").status_code == 404
+
+
+def _write_workspace_file(root, rel, text):
+    target = root / "sample-org" / "sample-app" / "pr-77" / "workspace" / rel
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(text)
+    return target
+
+
+def test_api_pr_file_reads_the_workspace_clone(client, tmp_path):
+    _write_workspace_file(tmp_path, "src/a.py", "l1\nl2\nl3\nl4\nl5\n")
+    data = client.get("/api/repos/sample-org/sample-app/pr/77/file",
+                      params={"path": "src/a.py", "start": 2, "end": 4}).json()
+    assert data == {"path": "src/a.py", "start": 2, "end": 4,
+                    "total_lines": 5, "lines": ["l2", "l3", "l4"]}
+
+
+def test_api_pr_file_defaults_and_clamps_the_range(client, tmp_path):
+    _write_workspace_file(tmp_path, "big.py", "\n".join(f"l{i}" for i in range(1, 501)))
+    data = client.get("/api/repos/sample-org/sample-app/pr/77/file",
+                      params={"path": "big.py"}).json()
+    assert data["start"] == 1 and data["end"] == 120 and data["total_lines"] == 500
+    data = client.get("/api/repos/sample-org/sample-app/pr/77/file",
+                      params={"path": "big.py", "start": 1, "end": 9999}).json()
+    assert data["end"] == 400  # hard cap mirrors prune.MAX_PATCH_LINES
+
+
+def test_api_pr_file_rejects_traversal(client, tmp_path):
+    _write_workspace_file(tmp_path, "src/a.py", "x\n")
+    for path in ("../secret.txt", "/etc/passwd", "src/../../pr-77/snapshot.json"):
+        r = client.get("/api/repos/sample-org/sample-app/pr/77/file", params={"path": path})
+        assert r.status_code == 400, path
+
+
+def test_api_pr_file_rejects_a_symlink_escape(client, tmp_path):
+    (tmp_path / "outside.py").write_text("secret\n")
+    ws = tmp_path / "sample-org" / "sample-app" / "pr-77" / "workspace"
+    ws.mkdir(parents=True, exist_ok=True)
+    (ws / "link.py").symlink_to(tmp_path / "outside.py")
+    r = client.get("/api/repos/sample-org/sample-app/pr/77/file", params={"path": "link.py"})
+    assert r.status_code == 400
+
+
+def test_api_pr_file_404_when_workspace_missing(client):
+    r = client.get("/api/repos/sample-org/sample-app/pr/77/file", params={"path": "src/a.py"})
+    assert r.status_code == 404
+
+
+def test_api_pr_extras_returns_each_artifact_or_null(client, tmp_path):
+    d = tmp_path / "sample-org" / "sample-app" / "pr-77"
+    (d / "poc.json").write_text(json.dumps([{"target": "tests/test_a.py", "framework": "pytest",
+                                             "test_code": "def test(): ...",
+                                             "why_it_fails": "wrong total"}]))
+    (d / "patches.json").write_text(json.dumps([{"path": "docs/a.md", "old_snippet": "old",
+                                                 "new_snippet": "new", "line_hint": 3,
+                                                 "why": "stale"}]))
+    data = client.get("/api/repos/sample-org/sample-app/pr/77/extras").json()
+    assert data["poc"][0]["framework"] == "pytest"
+    assert data["patches"][0]["line_hint"] == 3
+    assert data["ticket"] is None
+    assert data["neutralized"] is None
+    assert data["description"] is None
+
+
+def test_api_pr_extras_404_for_an_unknown_session(client):
+    assert client.get("/api/repos/sample-org/sample-app/pr/99/extras").status_code == 404
+
+
+def test_api_trace_joins_usage_and_transcripts(client, tmp_path):
+    d = tmp_path / "sample-org" / "sample-app" / "pr-77"
+    (d / "usage.json").write_text(json.dumps(
+        [{"phase": "verify", "session_id": "v-1", "cost_usd": 1.0}]))
+    t = d / "transcripts"
+    t.mkdir()
+    lines = [
+        json.dumps({"type": "assistant", "uuid": "1",
+                    "message": {"content": [{"type": "text", "text": "Reading pricing"}]}}),
+        json.dumps({"type": "assistant", "uuid": "2",
+                    "message": {"content": [{"type": "tool_use", "name": "Read",
+                                             "input": {"file_path": "src/pricing.py"}}]}}),
+        "not json at all",
+        json.dumps({"type": "user", "message": {"content": "hi"}}),
+    ]
+    (t / "v-1.jsonl").write_text("\n".join(lines))
+    data = client.get("/api/repos/sample-org/sample-app/pr/77/trace").json()
+    assert data == [{"phase": "verify", "session_id": "v-1", "events": [
+        {"type": "text", "summary": "Reading pricing"},
+        {"type": "tool", "tool": "Read", "summary": "src/pricing.py"},
+    ]}]
+
+
+def test_api_trace_is_empty_without_transcripts(client):
+    assert client.get("/api/repos/sample-org/sample-app/pr/77/trace").json() == []
+
+
+def test_unknown_api_get_is_json_404_not_the_spa(client):
+    for path in ("/api/nope", "/api/repos/sample-org/sample-app/pr/77/filez"):
+        r = client.get(path)
+        assert r.status_code == 404, path
+        assert "unknown API path" in r.json()["detail"]
+
+
+def test_api_repos_joins_the_repo_mode(tmp_path, monkeypatch):
+    _config(tmp_path, monkeypatch,
+            "org: sample-org\nrepos:\n  sample-app: manual\n")
+    root = tmp_path / "sessions"
+    _write_session(root, "sample-org", "sample-app", 77)
+    _write_session(root, "other", "thing", 5)
+    repos = {f"{r['owner']}/{r['repo']}": r
+             for r in TestClient(app).get("/api/repos").json()["repos"]}
+    assert repos["sample-org/sample-app"]["mode"] == "manual"
+    assert repos["sample-org/sample-app"]["has_data"] is True
+    assert repos["other/thing"]["mode"] == "unlisted"
+
+
+def test_api_pr_passes_claim_confidence_through(client, tmp_path):
+    d = tmp_path / "sample-org" / "sample-app" / "pr-77"
+    findings = json.loads((d / "findings.json").read_text())
+    findings["claims"][0]["confidence"] = 0.9
+    (d / "findings.json").write_text(json.dumps(findings))
+    data = client.get("/api/repos/sample-org/sample-app/pr/77").json()
+    assert data["claims"][0]["confidence"] == 0.9

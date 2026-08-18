@@ -2,7 +2,7 @@
 import json
 import sys
 from datetime import datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from describe import MIN_BODY_CHARS
 from poc import broken
@@ -208,6 +208,7 @@ def pr_detail(session_root: Path, owner: str, repo: str, n: int) -> dict | None:
             "status": fc.get("status", ""),
             "evidence": fc.get("evidence", []),
             "note": fc.get("note", ""),
+            "confidence": fc.get("confidence"),
         })
 
     answers = _read_json_list(session_dir / "answers.json")
@@ -232,6 +233,78 @@ def pr_detail(session_root: Path, owner: str, repo: str, n: int) -> dict | None:
         "usage": _read_json_list(session_dir / "usage.json"),
         "replies": _read_json_list(session_dir / "replies.json"),
     }
+
+
+def snapshot_slice(session_root: Path, owner: str, repo: str, n: int) -> dict | None:
+    """The diff-viewer payload from snapshot.json. None when missing/corrupt."""
+    snapshot = _read_json(session_root / owner / repo / f"pr-{n}" / "snapshot.json")
+    if snapshot is None:
+        return None
+    return {
+        "files": snapshot.get("files", []),
+        "pruned": snapshot.get("pruned", []),
+        "commits": snapshot.get("commits", []),
+        "threads": snapshot.get("threads", []),
+        "base_sha": snapshot.get("base_sha", ""),
+        "head_sha": snapshot.get("head_sha", ""),
+    }
+
+
+# Optional artifacts a review may or may not have written; each is None when
+# its file is absent so the dashboard can degrade per panel, not per page.
+EXTRA_FILES = ("ticket", "poc", "patches", "neutralized", "description")
+
+
+def pr_extras(session_root: Path, owner: str, repo: str, n: int) -> dict | None:
+    """{ticket, poc, patches, neutralized, description} — None per absent file."""
+    session_dir = session_root / owner / repo / f"pr-{n}"
+    if not session_dir.is_dir():
+        return None
+    extras = {}
+    for name in EXTRA_FILES:
+        path = session_dir / f"{name}.json"
+        if not path.exists():
+            extras[name] = None
+            continue
+        try:
+            extras[name] = json.loads(path.read_text())
+        except (OSError, json.JSONDecodeError):
+            _warn(f"unreadable {path}")
+            extras[name] = None
+    return extras
+
+
+WORKSPACE_MAX_LINES = 400   # mirrors prune.MAX_PATCH_LINES
+WORKSPACE_WINDOW = 120      # default slice when no end is given
+
+
+def workspace_file(session_root: Path, owner: str, repo: str, n: int,
+                   path: str, start: int = 1, end: int | None = None) -> dict | None:
+    """A line slice of one file from the workspace clone at the PR head.
+
+    None when the workspace or file is absent (demo/CI sessions carry no
+    clone). Raises ValueError for absolute paths, `..` segments, or anything
+    that resolves outside the workspace — a symlink escape resolves outside
+    and fails the containment check.
+    """
+    pure = PurePosixPath(path)
+    if pure.is_absolute() or ".." in pure.parts or path.startswith("\\"):
+        raise ValueError(f"path escapes the workspace: {path!r}")
+    workspace = (session_root / owner / repo / f"pr-{n}" / "workspace").resolve()
+    if not workspace.is_dir():
+        return None
+    target = (workspace / path).resolve()
+    if not target.is_relative_to(workspace):
+        raise ValueError(f"path escapes the workspace: {path!r}")
+    if not target.is_file():
+        return None
+    lines = target.read_text(errors="replace").splitlines()
+    start = max(1, start)
+    end = min(len(lines),
+              end if end is not None else start + WORKSPACE_WINDOW - 1,
+              start + WORKSPACE_MAX_LINES - 1)
+    return {"path": path, "start": start, "end": end,
+            "total_lines": len(lines), "lines": lines[start - 1:end]}
 
 
 def open_prs(session_root: Path, owner: str, repo: str, gh=None) -> list[dict]:

@@ -116,11 +116,22 @@ def _write_text_atomic(path: Path, text: str) -> None:
 
 
 def set_repo_mode(path: Path, repo: str, mode: str) -> dict:
-    """Add or change mode for a repo. Returns the updated config."""
+    """Add or change mode for a repo. Returns the updated config.
+
+    Writes to an existing entry when one matches (exact key, else the same
+    trailing name segment, mirroring remove_repo) so a full-name write does
+    not duplicate a bare-name entry or vice versa.
+    """
     if mode not in ("auto", "manual"):
         raise ValueError(f"mode must be auto|manual: {mode!r}")
     cfg = load_config(path)
-    cfg["repos"][repo] = mode
+    key = repo
+    if repo not in cfg["repos"]:
+        for existing in cfg["repos"]:
+            if existing.split("/")[-1] == repo.split("/")[-1]:
+                key = existing
+                break
+    cfg["repos"][key] = mode
     _write_atomic(path, cfg)
     return cfg
 
