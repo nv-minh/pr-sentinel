@@ -434,3 +434,56 @@ def test_the_pr_detail_carries_collisions_and_the_scan(tmp_path):
     assert detail["cross_pr"][0]["pr"] == 456
     assert detail["siblings"]["scanned"] == 12
     assert detail["pr"]["cross_pr"] == 1
+
+
+# ------------------------------------------------- pr_status_row / account_projects
+
+def test_pr_status_row_reports_a_pr_with_no_session_at_all(tmp_path):
+    row = metrics.pr_status_row(tmp_path / "sessions", "o", "r", 9, title="T9")
+    assert row == {"pr": 9, "title": "T9", "draft": False, "status": "not_reviewed",
+                   "rounds": None, "pid": None, "started_at": None,
+                   "bugs": None, "doc_errors": None, "unavailable": False}
+
+
+def test_pr_status_row_carries_the_counts_of_a_reviewed_pr(tmp_path):
+    root = tmp_path / "sessions"
+    _write_session(root, "o", "r", 7, snapshot=SNAPSHOT, findings=EMPTY_FINDINGS)
+    (root / "o" / "r" / "pr-7" / "rounds.txt").write_text("3")
+
+    row = metrics.pr_status_row(root, "o", "r", 7, title="T7", draft=True)
+    assert row["status"] == "reviewed"
+    assert row["rounds"] == 3
+    assert row["draft"] is True
+    assert row["bugs"] == 0 and row["doc_errors"] == 0  # 0, not None, once reviewed
+
+
+def test_pr_status_row_defaults_to_available(tmp_path):
+    """account_projects never passes unavailable — its data came from GraphQL."""
+    assert metrics.pr_status_row(tmp_path, "o", "r", 1)["unavailable"] is False
+
+
+def test_account_projects_merges_session_state_onto_the_github_rows(tmp_path,
+                                                                    monkeypatch):
+    root = tmp_path / "sessions"
+    _write_session(root, "o", "r", 7, snapshot=SNAPSHOT, findings=EMPTY_FINDINGS)
+
+    payload = {"data": {"viewer": {"login": "nv-minh", "repositories": {"nodes": [
+        {"nameWithOwner": "o/r", "isPrivate": False, "isArchived": False,
+         "pushedAt": "2026-08-18T00:00:00Z",
+         "pullRequests": {"totalCount": 2, "nodes": [
+             {"number": 7, "title": "Reviewed one", "isDraft": False,
+              "updatedAt": "2026-08-18T00:00:00Z", "author": {"login": "dev1"}},
+             {"number": 8, "title": "Fresh one", "isDraft": False,
+              "updatedAt": "2026-08-17T00:00:00Z", "author": {"login": "dev2"}}]}}]}}}}
+
+    data = metrics.account_projects(root, gh=lambda args, **kw: payload)
+    record = data["repos"][0]
+    by_pr = {p["pr"]: p for p in record["prs"]}
+
+    assert record["reviewed_count"] == 1
+    # GitHub-only fields survive the merge alongside the session-only ones
+    assert by_pr[7]["author"] == "dev1"
+    assert by_pr[7]["title"] == "Reviewed one"
+    assert by_pr[7]["status"] == "reviewed"
+    assert by_pr[8]["status"] == "not_reviewed"
+    assert by_pr[8]["bugs"] is None

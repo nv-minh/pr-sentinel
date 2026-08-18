@@ -3,12 +3,14 @@ import { useEffect, useState } from 'react'
 export type Route =
   | { name: 'repos' }
   | { name: 'config' }
+  | { name: 'github' }
   | { name: 'repo'; owner: string; repo: string }
   | { name: 'pr'; owner: string; repo: string; pr: number }
 
 export function parse(pathname: string): Route {
   const parts = pathname.split('/').filter(Boolean)
   if (parts[0] === 'config') return { name: 'config' }
+  if (parts[0] === 'github') return { name: 'github' }
   if (parts[0] === 'repos' && parts.length >= 3) {
     const [, owner, repo] = parts
     if (parts[3] === 'pr' && parts[4]) {

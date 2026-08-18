@@ -16,6 +16,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+import github_accounts
 import providers
 from autoreview_config import load_config as load_autoreview_config
 from autoreview_config import (auto_repos, list_repos, remove_repo,
@@ -223,6 +224,66 @@ def api_remove_repo(repo: str):
     except (ValueError, OSError) as e:
         raise HTTPException(status_code=400, detail=str(e))
     return {"ok": True, "repo": repo}
+
+
+# ----------------------------------------------------------------- github accounts
+
+@app.get("/api/github/accounts")
+def api_github_accounts():
+    """Which GitHub accounts are configured, and which one calls are made as.
+
+    Tokens are never in the response — only whether one is stored, the way
+    `/api/config` reports the provider key.
+    """
+    from gh import gh_available
+
+    return {"accounts": github_accounts.list_accounts(),
+            "active": github_accounts.active_login(),
+            "gh_available": gh_available()}
+
+
+@app.post("/api/github/accounts")
+def api_add_github_account(payload: dict):
+    """Verify a personal access token, store it, and switch to that account."""
+    token = (payload.get("token") or "").strip()
+    if not token:
+        raise HTTPException(status_code=400, detail="token is required")
+    try:
+        login = github_accounts.add_account(token)
+    except (ValueError, OSError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"ok": True, "login": login}
+
+
+@app.post("/api/github/accounts/{login}/active")
+def api_set_active_github_account(login: str):
+    try:
+        github_accounts.set_active(login)
+    except (ValueError, OSError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"ok": True, "login": login}
+
+
+@app.delete("/api/github/accounts/{login}")
+def api_remove_github_account(login: str):
+    try:
+        github_accounts.remove_account(login)
+    except (ValueError, OSError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"ok": True, "login": login}
+
+
+@app.get("/api/github/repos")
+def api_github_repos():
+    """Repos the active account can reach, with their open PRs and review state."""
+    if not github_accounts.active_token():
+        raise HTTPException(
+            status_code=400,
+            detail="no GitHub account connected — add a personal access token first")
+    try:
+        return metrics.account_projects(_session_root())
+    except (RuntimeError, OSError) as e:
+        raise HTTPException(status_code=400, detail=f"GitHub request failed: {e}")
 
 
 # ------------------------------------------------------------------------- review

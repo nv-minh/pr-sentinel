@@ -2,6 +2,8 @@
 __pycache__/
 *.pyc
 .env
+# the dashboard's atomic .env rewrite, if it ever crashes mid-write
+.env.tmp
 sessions/*
 !sessions/demo/
 !sessions/demo/**

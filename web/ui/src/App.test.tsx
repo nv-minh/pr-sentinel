@@ -86,12 +86,39 @@ const CONFIG = {
   config_path: '/etc/prsentinel.yml',
 }
 
+// The /github route: one connected account and one repo with two open PRs, one
+// of which already has a review on disk.
+const GITHUB_ACCOUNTS = {
+  accounts: [{ login: 'nv-minh', active: true, token_present: true }],
+  active: 'nv-minh',
+  gh_available: true,
+}
+
+const GITHUB_REPOS = {
+  login: 'nv-minh',
+  truncated: false,
+  repos: [{
+    owner: 'demo', repo: 'app', private: false, pushed_at: '2026-08-18T00:00:00Z',
+    open_pr_count: 2, reviewed_count: 1, truncated: false,
+    prs: [
+      { pr: 9, title: 'Add caching', draft: false, status: 'reviewed' as const,
+        rounds: 2, bugs: 3, doc_errors: 1, unavailable: false,
+        updated_at: '2026-08-18T00:00:00Z', author: 'dev1' },
+      { pr: 10, title: 'Tidy imports', draft: true, status: 'not_reviewed' as const,
+        rounds: null, bugs: null, doc_errors: null, unavailable: false,
+        updated_at: '2026-08-17T00:00:00Z', author: 'dev2' },
+    ],
+  }],
+}
+
 function mockFetch() {
   return vi.fn(async (input: RequestInfo | URL) => {
     const url = String(input)
     const body =
       url === '/api/repos' ? { repos: [REPO] }
       : url === '/api/config' ? CONFIG
+      : url === '/api/github/accounts' ? GITHUB_ACCOUNTS
+      : url === '/api/github/repos' ? GITHUB_REPOS
       : url.includes('/review/status') ? { running: false, stale: false }
       : url.endsWith('/pr/8') ? PR
       : url.endsWith('/demo/app') ? REPO
@@ -253,6 +280,51 @@ describe('App', () => {
     clickLangToggle()
     expect(container.textContent).toContain('What the poller watches')
     expect(container.querySelector('[aria-label="Mode for demo/app"]')).toBeTruthy()
+  })
+
+  it('fetches the account projects as soon as the page loads', async () => {
+    await render('/github')
+    // No click needed: an account is connected, so its repos are already here.
+    expect(container.textContent).toContain('nv-minh')
+    expect(container.textContent).toContain('demo/app')
+    expect(container.textContent).toContain('2 open')
+    expect(container.textContent).toContain('1 reviewed')
+  })
+
+  it('keeps the token field masked and never renders a token back', async () => {
+    await render('/github')
+    const field = container.querySelector(
+      '[aria-label="GitHub personal access token"]') as HTMLInputElement
+    expect(field.type).toBe('password')
+    expect(field.value).toBe('')
+  })
+
+  it('expands a repo to its open pull requests', async () => {
+    await render('/github')
+    expect(container.textContent).not.toContain('Add caching')
+
+    const row = Array.from(container.querySelectorAll('.row'))
+      .find((r) => r.textContent?.includes('demo/app')) as HTMLElement
+    await act(async () => { row.click() })
+
+    expect(container.textContent).toContain('#9')
+    expect(container.textContent).toContain('Add caching')
+    expect(container.textContent).toContain('#10')
+    expect(container.textContent).toContain('Tidy imports')
+  })
+
+  it('renders the account page in Vietnamese', async () => {
+    await render('/github')
+    expect(container.textContent).toContain('Connect an account')
+
+    clickLangToggle()
+
+    expect(container.textContent).toContain('Kết nối tài khoản')
+    expect(container.textContent).toContain('2 đang mở') // accounts.repoOpen
+    expect(container.textContent).not.toContain('Connect an account')
+
+    clickLangToggle()
+    expect(container.textContent).toContain('Connect an account')
   })
 
   it('switches to the cross-PR tab', async () => {
