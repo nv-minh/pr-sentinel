@@ -28,6 +28,9 @@ const TONES: Record<string, Tone> = {
   SAFE: 'pass', NEEDS_UPDATE: 'warn',
   // contracts
   COMPATIBLE: 'pass', BREAKING_API_CHANGE: 'fail', SCHEMA_MIGRATION_RISK: 'fail',
+  // cross-PR collisions — warn at most: a sibling branch may never merge
+  NO_CONFLICT: 'pass', SEMANTIC_CONFLICT: 'warn', MERGE_ORDER_RISK: 'warn',
+  DUPLICATE_WORK: 'warn',
   // test integrity
   STRONG: 'pass', WEAK: 'warn', MISSING: 'fail',
   // review threads

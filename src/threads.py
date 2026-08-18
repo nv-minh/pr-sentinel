@@ -151,6 +151,10 @@ New commits since your review:
 Replies:
 {quoted}
 {carried}
+cross_pr verdicts were judged against other open pull requests whose diffs are
+not in this prompt. Carry them over unchanged unless a reply is explicitly about
+one of them.
+
 Re-check only what these replies and commits affect: read the current code for
 those parts, then return the COMPLETE findings object again — carry over the
 verdicts that did not change, update the ones that did, and drop questions the

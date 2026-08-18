@@ -201,6 +201,7 @@ def main(argv: list[str] | None = None) -> int:
         else:
             from claims import extract_claims
             from describe import comment_section, draft_description, needs_description
+            from siblings import fetch_siblings
             from snapshot import build_snapshot
             from tickets import fetch_tickets
             from tiers import classify, settings as tier_settings
@@ -227,6 +228,16 @@ def main(argv: list[str] | None = None) -> int:
                 ticket = fetch_tickets(snapshot, session_dir,
                                        review_cfg.get("jira") or {})
 
+            # Defaults to on: a predates-Task-5 prsentinel.yml has no "siblings"
+            # key at all, and silently skipping the scan would be the surprise.
+            siblings = None
+            if (review_cfg.get("siblings") or {}).get("enabled", True):
+                siblings = _load_or_skip("siblings.json", session_dir, args.force)
+                if siblings is None:
+                    siblings = fetch_siblings(snapshot, session_dir,
+                                              review_cfg.get("siblings") or {},
+                                              review_cfg.get("gate") or {})
+
             if needs_description(snapshot):
                 draft = _load_or_skip("description.json", session_dir, args.force)
                 if draft is None:
@@ -248,7 +259,7 @@ def main(argv: list[str] | None = None) -> int:
             if findings is None:
                 setup_workspace(owner, repo, int(num), workspace)
                 findings = run_verify(cfg, workspace, session_dir, snapshot, claims,
-                                      ticket=ticket)
+                                      ticket=ticket, siblings=siblings)
                 _bump_rounds(session_dir)
             elif args.reply:
                 import threads
@@ -270,7 +281,7 @@ def main(argv: list[str] | None = None) -> int:
                     print(f"[run] follow-up could not resume ({e}) — full re-review",
                           file=sys.stderr)
                     findings = run_verify(cfg, workspace, session_dir, snapshot, claims,
-                                          ticket=ticket)
+                                          ticket=ticket, siblings=siblings)
                 # Only what this run answered: a reply that landed while the
                 # follow-up was running stays unseen, so the next run takes it.
                 threads.save_replies(session_dir, fresh)

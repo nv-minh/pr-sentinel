@@ -21,6 +21,12 @@ DOC_DRIFT_STATUSES = ("STALE", "WRONG", "FABRICATED")
 LABEL_DOC_DRIFT = "needs-doc-update"
 LABEL_BREAKING = "breaking-change"
 LABEL_RISK = "review-risk-high"
+LABEL_CROSS_PR = "cross-pr-collision"
+# Below this, a collision is reported but does not move the gate: a half-sure
+# guess about a branch that may never merge is not worth an amber CI run.
+CROSS_PR_MIN_CONFIDENCE = 0.5
+RISKY_CROSS_PR = ("SEMANTIC_CONFLICT", "MERGE_ORDER_RISK")
+REAL_CROSS_PR = RISKY_CROSS_PR + ("DUPLICATE_WORK",)
 
 
 def _matches(path: str, patterns: list[str]) -> bool:
@@ -98,8 +104,38 @@ def test_gaps(findings: dict) -> list[dict]:
             if t.get("assertion_quality") in ("WEAK", "MISSING")]
 
 
+def cross_pr(findings: dict) -> tuple[list[dict], list[dict]]:
+    """(collisions that raise risk to medium, collisions only reported).
+
+    Deliberately outside `business_risk`: that function answers "how risky is
+    this PR as it stands", and a sibling branch is not part of what this PR
+    stands on. A collision is a claim about code that may never merge, so it can
+    move the gate to warn and never to fail.
+    """
+    bumping: list[dict] = []
+    noted: list[dict] = []
+    for c in findings.get("cross_pr") or []:
+        if c.get("status") not in REAL_CROSS_PR:
+            continue
+        try:
+            confidence = float(c.get("confidence") or 0.0)
+        except (TypeError, ValueError):
+            confidence = 0.0
+        risky = (c["status"] in RISKY_CROSS_PR
+                 and confidence >= CROSS_PR_MIN_CONFIDENCE)
+        (bumping if risky else noted).append(c)
+    return bumping, noted
+
+
 def score(findings: dict, gate: dict | None = None) -> dict:
-    """Full risk matrix + the merge decision (pass / warn / fail)."""
+    """Full risk matrix + the merge decision (pass / warn / fail).
+
+    `cross_pr()` is intentionally kept out of `business_risk()`, but its bump
+    is folded into the `"business_risk"` field returned here — so
+    `score()["business_risk"] == "medium"` can be entirely sibling-derived
+    (this PR's own code may be spotless) with nothing in that field alone
+    distinguishing the two cases; check `reasons`/`cross_pr` for that.
+    """
     cfg = {**DEFAULT_GATE, **(gate or {})}
     minimum = float(cfg["verification_score_min"])
 
@@ -107,6 +143,11 @@ def score(findings: dict, gate: dict | None = None) -> dict:
     drifted = doc_drift(findings, cfg["core_docs"])
     risk, risk_reasons = business_risk(findings, cfg["sensitive_areas"])
     gaps = test_gaps(findings)
+    bumping, noted = cross_pr(findings)
+    # Raises the floor, never sets the ceiling: `high` stays a statement about
+    # this PR's own code.
+    if bumping and risk == "none":
+        risk = "medium"
 
     reasons: list[str] = []
     labels: list[str] = []
@@ -117,6 +158,10 @@ def score(findings: dict, gate: dict | None = None) -> dict:
                        + ", ".join(d.get("path", "?") for d in drifted))
         labels.append(LABEL_DOC_DRIFT)
     reasons.extend(risk_reasons)
+    reasons.extend(f"cross-PR {c['status']} with #{c.get('pr', '?')}: "
+                   f"{c.get('detail', '')}".strip() for c in bumping + noted)
+    if bumping or noted:
+        labels.append(LABEL_CROSS_PR)
     if any(c.get("status") == "BREAKING_API_CHANGE" for c in findings.get("contracts") or []):
         labels.append(LABEL_BREAKING)
 
@@ -132,6 +177,8 @@ def score(findings: dict, gate: dict | None = None) -> dict:
         "doc_drift": [d.get("path", "?") for d in drifted],
         "business_risk": risk,
         "test_gaps": [t.get("target", "?") for t in gaps],
+        "cross_pr": [f"#{c.get('pr', '?')} {c.get('status', '')}"
+                     for c in bumping + noted],
         "gate": decision,
         "labels": sorted(set(labels)),
         "reasons": reasons,

@@ -17,6 +17,7 @@ request and reports what the code actually does — every verdict carrying a
 | **Docs vs reality** | Documentation compared against the code it describes: `MATCH / STALE / WRONG / FABRICATED` |
 | **Requirement impact** | Which business behaviour the change touches: `CHANGED / BROKEN / UNAFFECTED / RISK` |
 | **Callers outside the diff** | Symbols whose behaviour changed, and the callers this PR *didn't* touch: `SAFE / NEEDS_UPDATE / BROKEN` |
+| **Cross-PR collisions** | Other **open** pull requests changing the same code, compared against this one: `SEMANTIC_CONFLICT / DUPLICATE_WORK / MERGE_ORDER_RISK / NO_CONFLICT` |
 | **Contract breakage** | API specs, migrations, protos and exported types: `BREAKING_API_CHANGE / SCHEMA_MIGRATION_RISK` |
 | **Test integrity** | Whether new tests assert the new branch logic or only execute it, plus concrete uncovered edge cases |
 | **Merge gate** | Verification score, doc drift and business risk → `pass / warn / fail`, wired to a CI exit code |
@@ -67,7 +68,8 @@ PYTHONPATH=src python -m src.run owner/repo 123 --reply      # answer new replie
 ```
 
 Results land in `sessions/<owner>/<repo>/pr-<n>/`: `findings.json`, `score.json`,
-`ticket.json` (the requirement context, or why there is none), `neutralized.json`
+`ticket.json` (the requirement context, or why there is none), `siblings.json`
+(the overlapping open PRs found, or why none were), `neutralized.json`
 (instruction-shaped text stripped from prompts), `poc.json` (generated failing
 tests), `usage.json` (what the review cost), `report.md`, and `transcripts/` —
 the agent conversation, kept so a later `--reply` resumes it instead of
@@ -87,21 +89,25 @@ exists, so a re-run resumes rather than paying twice; `--force` re-runs them.
 3. **Ticket** — the Jira ticket the PR is about, if any, is fetched once and
    cached as `ticket.json`; its text becomes the requirement `impact` is judged
    against. Unconfigured Jira simply records why and moves on.
-4. **Describe** — if the body is empty or too thin to claim anything, a
+4. **Sibling scan** — one GraphQL call lists the open pull requests, and any that
+   change a file this PR changes — or a sensitive/contract directory it touches —
+   have their diff fetched, trimmed and cached as `siblings.json`. Nothing is
+   loaded when nothing overlaps.
+5. **Describe** — if the body is empty or too thin to claim anything, a
    description is drafted from the diff (proposed in the comment; only rewritten
    on the PR when `auto_describe` is on).
-5. **Claims** — the description is split into individually checkable statements.
-6. **Verify** — a read-only Claude agent works inside a disposable clone of the
+6. **Claims** — the description is split into individually checkable statements.
+7. **Verify** — a read-only Claude agent works inside a disposable clone of the
    PR head and fills in the findings schema: claims, docs, impact, callers
-   outside the diff, contracts, tests.
-7. **Score** — the findings become a merge decision.
-8. **Ask** — anything the agent could not prove becomes a question of at most 20
+   outside the diff, contracts, tests, cross-PR collisions.
+8. **Score** — the findings become a merge decision.
+9. **Ask** — anything the agent could not prove becomes a question of at most 20
    words, for a human.
-9. **Report** — **one** review event on the PR carrying every anchorable inline
-   comment (doc fixes as one-click suggestions, findings on the lines they are
-   about), plus a summary comment — updated in place — for everything that could
-   not be anchored, generated failing tests for `BROKEN` findings, labels, a
-   check run and optional Slack and Jira pings.
+10. **Report** — **one** review event on the PR carrying every anchorable inline
+    comment (doc fixes as one-click suggestions, findings on the lines they are
+    about), plus a summary comment — updated in place — for everything that could
+    not be anchored, generated failing tests for `BROKEN` findings, labels, a
+    check run and optional Slack and Jira pings.
 
 ## CI gate
 
@@ -294,6 +300,46 @@ The classification reuses `gate.sensitive_areas` rather than a second list, and
 the chosen tier is printed at the start of the run. Reasoning effort rides the
 Anthropic path; a third-party gateway may ignore it and reason at its own
 default.
+
+## Cross-PR collisions
+
+Two pull requests can each be green and still break `main` together: PR A renames
+`createInvoice()`, PR B calls it from a file PR A never touches. Git sees no
+conflict, and neither CI run contains the other's commits.
+
+Before the deep dive, PR Sentinel lists the open pull requests and keeps the ones
+that overlap this PR — same file, or the same directory when that directory is a
+`gate.sensitive_areas` match or holds a contract file. Their diffs, trimmed, go
+into the review as untrusted material, and each one comes back judged:
+`SEMANTIC_CONFLICT`, `DUPLICATE_WORK`, `MERGE_ORDER_RISK` or `NO_CONFLICT`.
+
+```yaml
+siblings:
+  enabled: true
+  max_siblings: 3           # how many overlapping PRs get their diff loaded
+  include_drafts: false
+```
+
+A collision labels the PR `cross-pr-collision` and can take the gate to `warn`
+only when both hold: the status is `SEMANTIC_CONFLICT` or `MERGE_ORDER_RISK`,
+and confidence is at least 0.5. `DUPLICATE_WORK` is reported but never moves
+the gate at any confidence, and below 0.5 confidence a `SEMANTIC_CONFLICT` or
+`MERGE_ORDER_RISK` is reported but not gated either — a half-sure guess about a
+branch that may never merge is not worth an amber CI run. Even a confident
+collision never fails a review: the other branch may never merge, or may merge
+after this one has already been fixed, and blocking a merge on a guess about a
+branch that does not exist yet is a false positive nobody thanks you for.
+
+Costs are bounded on purpose: at most 50 open PRs are scanned, at most 3 get
+their diff loaded, and each of those is cut to 60 patch lines per file and 300
+in total. No overlap means no sibling diff is loaded and no extra GitHub call
+is paid for beyond the one GraphQL listing — the verify prompt itself always
+carries the cross-PR instructions, whether or not any sibling exists.
+
+**The scan sees the pull requests that were open when it ran.** A sibling opened
+or merged afterwards is invisible until the review is re-run (`--force`, a new
+head commit, or the poller). Catching the merge itself would take a post-merge
+re-trigger, which this does not do.
 
 ## Safety
 
