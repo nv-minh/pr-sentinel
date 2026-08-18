@@ -208,6 +208,32 @@ can switch providers (the switch rewrites the one `provider:` line in
 Demo data ships in `sessions/demo/app/` — open
 `http://127.0.0.1:6789/repos/demo/app/pr/8` for a blocked review.
 
+### Connecting a GitHub account
+
+The **GitHub** page turns a personal access token into a browsable list of work:
+paste one, and every project that account reaches — its own, the ones it was
+added to, and its organisations' — is fetched with their open pull requests, each
+row showing whether it has already been reviewed. Review or watch one from there;
+nothing has to be typed into `prsentinel.yml` first.
+
+The token needs `repo` and `read:org`. It is verified against GitHub before being
+stored, then written to `.env` — never to `prsentinel.yml`, and never sent back to
+the page. More than one account can be connected; whichever is active is the one
+**every** GitHub call is made as — the REST and GraphQL calls through `gh`, and the
+`git clone` of the pull request itself, which is what lets a work account review a
+private repo the machine's own login cannot see. The credential reaches git as an
+HTTP header through `GIT_CONFIG_*`, so it is never in a command line and never
+written into the clone's `.git/config`. With no account connected, `gh` and `git`
+authenticate exactly as they did before.
+
+Switching account takes effect on the next GitHub call, including calls made by a
+review already running — so a review started as one account can finish as another.
+Switch between reviews, not during one.
+
+The dashboard has no login of its own and binds to `127.0.0.1` — it can already
+edit `prsentinel.yml` and start reviews, and now also holds a GitHub token
+(`.env`, mode `600`). Do not serve it on a public interface.
+
 ## Providers
 
 PR Sentinel runs on the Claude Agent SDK, which speaks the Anthropic wire

@@ -127,7 +127,21 @@ SYSTEM_PROMPT = (
 
 
 def _run_git(args: list[str], cwd: Path) -> None:
-    proc = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True)
+    """Run one git command as the connected GitHub account, if there is one.
+
+    Without the credential, a clone of a private repo falls back to whatever the
+    machine's own credential helper offers — which is a different identity from
+    the one the dashboard lists the repo under, and fails with a bare "not
+    found". `gh.git_env` returns None when no account is connected, and then
+    this is the same call it always was.
+    """
+    from gh import git_env
+
+    kwargs = {"cwd": cwd, "capture_output": True, "text": True}
+    env = git_env()
+    if env is not None:
+        kwargs["env"] = env
+    proc = subprocess.run(["git", *args], **kwargs)
     if proc.returncode != 0:
         raise RuntimeError(f"git {' '.join(args)} failed: {proc.stderr.strip()}")
 

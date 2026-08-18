@@ -234,6 +234,38 @@ def pr_detail(session_root: Path, owner: str, repo: str, n: int) -> dict | None:
     }
 
 
+def pr_status_row(session_root: Path, owner: str, repo: str, n: int, *,
+                  title: str = "", draft: bool = False,
+                  unavailable: bool = False) -> dict:
+    """One open PR merged with whatever `sessions/` knows about it.
+
+    status: reviewed | reviewing | not_reviewed. A live lock wins over existing
+    findings — a re-review in flight is "reviewing", even on a PR reviewed
+    yesterday. A session directory with no findings and no live lock is a review
+    that started and did not finish, which is still not a clean "not reviewed".
+    """
+    d = session_root / owner / repo / f"pr-{n}"
+    info = review_process_info(d)
+    reviewed = (d / "findings.json").exists()
+    rec = pr_record(session_root, owner, repo, n) if reviewed else None
+    row = {"pr": n, "title": title, "draft": bool(draft),
+           "status": "not_reviewed", "rounds": None,
+           "pid": None, "started_at": None,
+           "bugs": None, "doc_errors": None, "unavailable": unavailable}
+    if info:
+        row.update(status="reviewing", pid=info["pid"],
+                   started_at=info["started_at"],
+                   bugs=rec["bugs"] if rec else None,
+                   doc_errors=rec["doc_errors"] if rec else None)
+    elif reviewed:
+        row.update(status="reviewed", rounds=_read_rounds(d),
+                   bugs=rec["bugs"] if rec else 0,
+                   doc_errors=rec["doc_errors"] if rec else 0)
+    elif d.exists():
+        row.update(status="reviewing")
+    return row
+
+
 def open_prs(session_root: Path, owner: str, repo: str, gh=None) -> list[dict]:
     """Merge GitHub open PRs with session state.
 
@@ -252,55 +284,14 @@ def open_prs(session_root: Path, owner: str, repo: str, gh=None) -> list[dict]:
         prs = []
         unavailable = True
 
-    session_dir = session_root / owner / repo
     seen = set()
     for p in prs:
         n = int(p["number"])
         seen.add(n)
-        d = session_dir / f"pr-{n}"
-        info = review_process_info(d)
-        if info:  # lock sống → đang review/re-review (kể cả khi đã có findings)
-            rec = pr_record(session_root, owner, repo, n) if (d / "findings.json").exists() else None
-            rows.append({
-                "pr": n, "title": p.get("title", ""),
-                "draft": bool(p.get("draft")),
-                "status": "reviewing", "rounds": None,
-                "pid": info["pid"],
-                "started_at": info["started_at"],
-                "bugs": rec["bugs"] if rec else None,
-                "doc_errors": rec["doc_errors"] if rec else None,
-                "unavailable": unavailable,
-            })
-        elif (d / "findings.json").exists():
-            rec = pr_record(session_root, owner, repo, n)
-            rows.append({
-                "pr": n, "title": p.get("title", ""),
-                "draft": bool(p.get("draft")),
-                "status": "reviewed",
-                "rounds": _read_rounds(d),
-                "bugs": rec["bugs"] if rec else 0,
-                "doc_errors": rec["doc_errors"] if rec else 0,
-                "unavailable": unavailable,
-            })
-        elif d.exists():
-            info = review_process_info(d)
-            rows.append({
-                "pr": n, "title": p.get("title", ""),
-                "draft": bool(p.get("draft")),
-                "status": "reviewing", "rounds": None,
-                "pid": info["pid"] if info else None,
-                "started_at": info["started_at"] if info else None,
-                "bugs": None, "doc_errors": None,
-                "unavailable": unavailable,
-            })
-        else:
-            rows.append({
-                "pr": n, "title": p.get("title", ""),
-                "draft": bool(p.get("draft")),
-                "status": "not_reviewed", "rounds": None,
-                "bugs": None, "doc_errors": None,
-                "unavailable": unavailable,
-            })
+        rows.append(pr_status_row(session_root, owner, repo, n,
+                                  title=p.get("title", ""),
+                                  draft=bool(p.get("draft")),
+                                  unavailable=unavailable))
 
     if unavailable:
         # gh lỗi → fallback: PR đã review từ sessions
@@ -321,6 +312,27 @@ def open_prs(session_root: Path, owner: str, repo: str, gh=None) -> list[dict]:
 
     rows.sort(key=lambda r: r["pr"], reverse=True)
     return rows
+
+
+def account_projects(session_root: Path, gh=None) -> dict:
+    """Every repo the authenticated GitHub account reaches, PRs merged with sessions.
+
+    The GitHub half is one GraphQL call (`github_projects`); this adds the
+    review state already on disk, so the account page can show what has been
+    reviewed without a request per pull request.
+    """
+    import github_projects
+
+    data = github_projects.account_repos(gh=gh)
+    for record in data["repos"]:
+        owner, repo = record["owner"], record["repo"]
+        record["prs"] = [
+            {**pr, **pr_status_row(session_root, owner, repo, pr["pr"],
+                                   title=pr["title"], draft=pr["draft"])}
+            for pr in record["prs"]]
+        record["reviewed_count"] = sum(1 for pr in record["prs"]
+                                       if pr["status"] == "reviewed")
+    return data
 
 
 def review_process_info(session_dir: Path) -> dict | None:

@@ -1,15 +1,53 @@
-"""Thin wrapper around the gh CLI. gh must already be authenticated (gh auth login)."""
+"""Thin wrapper around the gh CLI.
+
+gh authenticates itself (`gh auth login`, or `GH_TOKEN` in CI) unless the
+dashboard has been given a GitHub account — see `github_accounts.py`. When it
+has, every call made through here runs as that account, which is what makes one
+switch in the UI reach the whole pipeline: snapshots, sibling scans, posted
+comments and check runs alike.
+"""
+import base64
 import json as _json
+import os
 import subprocess
 
 
-def _run_gh_impl(args: list[str], stdin: str | None = None) -> subprocess.CompletedProcess:
-    return subprocess.run(["gh", *args], capture_output=True, text=True, input=stdin)
+def _gh_env(token: str | None) -> dict | None:
+    """Environment for the gh subprocess, or None to inherit this process's.
+
+    None is the no-account path and keeps today's behaviour exactly: gh falls
+    back to its keyring login locally and to the workflow's GH_TOKEN in CI.
+    """
+    import github_accounts  # imported late: github_accounts calls run_gh
+
+    with github_accounts.LOCK:  # os.environ must not grow mid-copy
+        if token is None:
+            token = github_accounts.active_token()
+        token = (token or "").strip()
+        if not token:
+            return None
+        # Both names: gh reads GH_TOKEN first, and overwriting GITHUB_TOKEN stops
+        # an inherited one from winning inside GitHub Actions.
+        return {**os.environ, "GH_TOKEN": token, "GITHUB_TOKEN": token}
 
 
-def run_gh(args: list[str], *, json: bool = True,
-           stdin: str | None = None) -> dict | list:
-    proc = _run_gh_impl(args + (["--jq", "."] if json else []), stdin)
+def _run_gh_impl(args: list[str], stdin: str | None = None,
+                 env: dict | None = None) -> subprocess.CompletedProcess:
+    kwargs = {"capture_output": True, "text": True, "input": stdin}
+    if env is not None:
+        # subprocess.run(env=None) already inherits this process's environment;
+        # the kwarg is left off entirely so the no-account call is byte-for-byte
+        # the call this module made before accounts existed.
+        kwargs["env"] = env
+    return subprocess.run(["gh", *args], **kwargs)
+
+
+def run_gh(args: list[str], *, json: bool = True, stdin: str | None = None,
+           token: str | None = None) -> dict | list:
+    """Run one gh command. `token` overrides the active account, for verifying
+    a token that has not been stored yet."""
+    proc = _run_gh_impl(args + (["--jq", "."] if json else []), stdin,
+                        _gh_env(token))
     if proc.returncode != 0:
         raise RuntimeError(f"gh api failed: {proc.stderr.strip()}")
     if not json:
@@ -109,3 +147,29 @@ def post_review(owner: str, repo: str, n: int, *, commit_id: str,
     except RuntimeError as e:
         print(f"[gh] review batch rejected ({len(comments)} comment(s)): {e}")
         return False
+
+
+def git_env(env: dict | None = None) -> dict | None:
+    """Environment for a git subprocess, or None to inherit this process's.
+
+    The REST and GraphQL calls go through `gh`, but the review also *clones* the
+    pull request, and git does not read GH_TOKEN. Without this, a connected work
+    account could list an org's private repos and then fail to clone one,
+    because git fell back to the machine's own credential helper.
+
+    The credential is passed as an HTTP header through GIT_CONFIG_* rather than
+    `-c` or a token-in-URL: `-c` puts it in argv where `ps` can read it, and a
+    URL credential is written into the clone's .git/config and survives on disk.
+    Scoping the key to github.com leaves a clone from anywhere else untouched.
+    """
+    import github_accounts
+
+    with github_accounts.LOCK:
+        token = github_accounts.active_token(env)
+        if not token:
+            return None
+        basic = base64.b64encode(f"x-access-token:{token}".encode()).decode()
+        return {**os.environ,
+                "GIT_CONFIG_COUNT": "1",
+                "GIT_CONFIG_KEY_0": "http.https://github.com/.extraHeader",
+                "GIT_CONFIG_VALUE_0": f"Authorization: Basic {basic}"}
