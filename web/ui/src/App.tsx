@@ -1,17 +1,10 @@
 import { Config } from './pages/Config'
-import { PrDetail } from './pages/PrDetail'
+import { Workspace } from './workspace/Workspace'
 import { RepoDetail } from './pages/RepoDetail'
 import { Repos } from './pages/Repos'
 import { useLang, useT } from './i18n'
-import { navigate, useRoute } from './router'
+import { Link, useRoute } from './router'
 import { useTheme } from './theme'
-
-function link(path: string) {
-  return {
-    href: path,
-    onClick: (e: React.MouseEvent) => { e.preventDefault(); navigate(path) },
-  }
-}
 
 const NAV_LINK =
   'font-mono text-[12px] uppercase tracking-[0.08em] text-ink-muted ' +
@@ -23,22 +16,26 @@ export function App() {
   const [lang, setLang] = useLang()
   const t = useT()
 
+  // The review workspace runs three panes wide; every other route keeps the
+  // centred reading column.
+  const wide = route.name === 'pr'
   return (
-    <div className="mx-auto max-w-[1120px] px-7 pb-24 max-[620px]:px-4 max-[620px]:pb-16">
+    <div className={wide
+      ? 'px-6 pb-16 max-[620px]:px-4'
+      : 'mx-auto max-w-[1120px] px-7 pb-24 max-[620px]:px-4 max-[620px]:pb-16'}>
       <header className="mb-8 flex flex-wrap items-baseline gap-5 border-b border-hairline-strong pt-[22px] pb-[18px]">
-        <a className="font-mono text-[13px] font-bold uppercase tracking-[0.14em] text-brand"
-           {...link('/')}>
+        <Link to="/" className="font-mono text-[13px] font-bold uppercase tracking-[0.14em] text-brand">
           PR Sentinel
-        </a>
+        </Link>
         <nav className="ml-auto flex items-center gap-[18px]">
-          <a {...link('/')} className={NAV_LINK}
-             aria-current={route.name === 'repos' ? 'page' : undefined}>
+          <Link to="/" className={NAV_LINK}
+                aria-current={route.name === 'repos' ? 'page' : undefined}>
             {t('nav.repos')}
-          </a>
-          <a {...link('/config')} className={NAV_LINK}
-             aria-current={route.name === 'config' ? 'page' : undefined}>
+          </Link>
+          <Link to="/config" className={NAV_LINK}
+                aria-current={route.name === 'config' ? 'page' : undefined}>
             {t('nav.config')}
-          </a>
+          </Link>
           <button
             className="rounded border border-hairline-strong px-[9px] py-1 font-mono text-[12px] uppercase tracking-[0.08em] text-ink-muted hover:border-ink-muted hover:text-ink"
             onClick={() => setLang(lang === 'vi' ? 'en' : 'vi')}
@@ -62,7 +59,7 @@ export function App() {
         {route.name === 'config' && <Config />}
         {route.name === 'repo' && <RepoDetail owner={route.owner} repo={route.repo} />}
         {route.name === 'pr' && (
-          <PrDetail owner={route.owner} repo={route.repo} pr={route.pr} />
+          <Workspace owner={route.owner} repo={route.repo} pr={route.pr} />
         )}
       </main>
     </div>

@@ -187,7 +187,8 @@ export interface PrDetail {
     reasons?: string[]
     labels?: string[]
   }
-  usage?: { phase: string; cost_usd: number | null; num_turns: number; model: string }[]
+  usage?: { phase: string; session_id?: string; cost_usd: number | null
+            num_turns: number; duration_ms?: number | null; model: string }[]
   replies?: { author: string; body: string; created_at: string; source: string }[]
 }
 

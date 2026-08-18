@@ -59,6 +59,19 @@ const PR = {
   usage: [], replies: [],
 }
 
+// Snapshot slice for the workspace's diff pane. The pricing patch's hunk
+// covers new-side lines 72-75, so the claim evidence at :74 anchors inline.
+const PR_FILES = {
+  files: [
+    { filename: 'src/checkout/pricing.py', status: 'modified', additions: 3, deletions: 0,
+      patch: '@@ -70,3 +72,4 @@\n def price_for(cart):\n     key = _cache_key(cart)\n+    total = _apply_discounts(cart)\n+    return total' },
+    { filename: 'db/migrations/0042.sql', status: 'added', additions: 1, deletions: 0,
+      patch: '@@ -0,0 +1,1 @@\n+DROP TABLE price_history;' },
+  ],
+  pruned: [], commits: [], threads: [], base_sha: 'b1', head_sha: 'h1',
+}
+const PR_EXTRAS = { ticket: null, poc: null, patches: null, neutralized: null, description: null }
+
 // Config route fixture, used only by the Vietnamese Config test below: no
 // other test in this file navigates to /config.
 const CONFIG = {
@@ -93,6 +106,10 @@ function mockFetch() {
       url === '/api/repos' ? { repos: [REPO] }
       : url === '/api/config' ? CONFIG
       : url.includes('/review/status') ? { running: false, stale: false }
+      : url.endsWith('/pr/8/files') ? PR_FILES
+      : url.endsWith('/pr/8/extras') ? PR_EXTRAS
+      : url.endsWith('/pr/8/trace') ? []
+      : url.endsWith('/pr/8/graph') ? {}
       : url.endsWith('/pr/8') ? PR
       : url.endsWith('/demo/app') ? REPO
       : {}
@@ -141,6 +158,9 @@ beforeEach(() => {
   ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
   vi.stubGlobal('fetch', mockFetch())
   vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener() {}, removeEventListener() {} }))
+  if (!Element.prototype.scrollIntoView) {
+    Element.prototype.scrollIntoView = () => {}
+  }
 })
 
 afterEach(() => {
@@ -176,14 +196,20 @@ describe('App', () => {
     expect(container.textContent).toContain('Speed up checkout')
     expect(container.textContent).toContain('No behaviour change')
     expect(container.textContent).toContain('src/checkout/pricing.py:74')
+    // gate reasons sit behind the header toggle now
+    const toggle = Array.from(container.querySelectorAll('button'))
+      .find((b) => b.textContent?.startsWith('Show reasons')) as HTMLButtonElement
+    await act(async () => { toggle.click() })
     expect(container.textContent).toContain('verification score 33% below 80%')
   })
 
-  it('switches to the contracts tab', async () => {
+  it('selects a contract finding from the nav', async () => {
     await render('/repos/demo/app/pr/8')
-    const tabs = Array.from(container.querySelectorAll('.tab')) as HTMLButtonElement[]
-    const contracts = tabs.find((t) => t.textContent?.startsWith('Contracts'))!
-    await act(async () => { contracts.click() })
+    const item = Array.from(
+      container.querySelectorAll('[data-nav-family="contract"] button'),
+    ).find((b) => b.textContent?.includes('0042.sql')) as HTMLButtonElement
+    await act(async () => { item.click() })
+    expect(window.location.search).toContain('finding=contract-0')
     expect(container.textContent).toContain('db/migrations/0042.sql')
     expect(container.textContent).toContain('SCHEMA_MIGRATION_RISK')
   })
@@ -254,12 +280,13 @@ describe('App', () => {
     expect(container.textContent).toContain('What the poller watches')
   })
 
-  it('switches to the cross-PR tab', async () => {
+  it('selects a cross-PR finding from the nav', async () => {
     await render('/repos/demo/app/pr/8')
-    const tabs = Array.from(container.querySelectorAll('.tab')) as HTMLButtonElement[]
-    const crosspr = tabs.find((t) => t.textContent?.startsWith('Cross-PR'))!
-    await act(async () => { crosspr.click() })
+    const item = Array.from(
+      container.querySelectorAll('[data-nav-family="crosspr"] button'),
+    ).find((b) => b.textContent?.includes('#456')) as HTMLButtonElement
+    await act(async () => { item.click() })
     expect(container.textContent).toContain('createInvoice')
-    expect(container.textContent).toContain('#456')
+    expect(container.textContent).toContain('renames a symbol this PR calls')
   })
 })

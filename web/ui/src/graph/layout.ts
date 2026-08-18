@@ -36,19 +36,3 @@ export const STATUS_KEY: Record<PhaseStatus, Key> = {
   pending: 'graph.statusPending',
   skipped: 'graph.statusSkipped',
 }
-
-/** Which detail tab a node opens. Phases with no tab of their own land on the
- *  nearest one that actually shows their output. */
-export const NODE_TAB: Record<string, string> = {
-  snapshot: 'context',
-  siblings: 'crosspr',
-  describe: 'context',
-  claims: 'claims',
-  followup: 'threads',
-  verify: 'claims',
-  remediate: 'docs',
-  poc: 'tests',
-  score: 'claims',
-  ask: 'confirm',
-  report: 'claims',
-}

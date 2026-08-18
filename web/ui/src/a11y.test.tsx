@@ -96,6 +96,11 @@ function mockFetch() {
       : url.endsWith('/pr/8/graph') ? GRAPH
       : url.includes('/pr/8/review/status') ? { running: false, stale: false }
       : url.includes('/pr/8/review/log') ? { log: '', running: false }
+      : url.endsWith('/pr/8/files')
+        ? { files: [], pruned: [], commits: [], threads: [], base_sha: '', head_sha: 'h1' }
+      : url.endsWith('/pr/8/extras')
+        ? { ticket: null, poc: null, patches: null, neutralized: null, description: null }
+      : url.endsWith('/pr/8/trace') ? []
       : url.endsWith('/pr/8') ? PR
       : url.endsWith('/demo/app') ? REPO
       : { repos: [] } // '/api/repos', for the empty repo-list route
@@ -137,6 +142,9 @@ beforeEach(() => {
   }))
   // React Flow (mounted via PipelineGraph on the PR route) measures its
   // container; jsdom reports zeroes without this stub.
+  if (!Element.prototype.scrollIntoView) {
+    Element.prototype.scrollIntoView = () => {}
+  }
   vi.stubGlobal('ResizeObserver', class {
     observe() {}
     unobserve() {}
