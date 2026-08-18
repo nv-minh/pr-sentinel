@@ -44,12 +44,20 @@ def diff_lines(snapshot: dict) -> dict[str, set[int]]:
     return index
 
 
+# Grammar shared with the dashboard's evidence parser (workspace/evidence.ts):
+# path ':' digits ('-' digits)? (whitespace annotation)?  ->  first digit run.
+REF_RE = re.compile(r"(.+?):(\d+)(?:-\d+)?(?:\s+\S.*)?")
+
+
 def parse_ref(ref: str) -> tuple[str, int] | None:
-    """`src/a.py:42` -> ("src/a.py", 42). None when there is no line number."""
-    path, _, line = (ref or "").rpartition(":")
-    if not path or not line.isdigit():
+    """`src/a.py:42`, `src/a.py:42-60`, `src/a.py:42 note` -> ("src/a.py", 42).
+
+    None when there is no line number (`src/a.py:test_charge`, bare paths).
+    """
+    match = REF_RE.fullmatch((ref or "").strip())
+    if not match:
         return None
-    return path, int(line)
+    return match.group(1), int(match.group(2))
 
 
 def _file_of(target: str) -> str:

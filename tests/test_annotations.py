@@ -226,3 +226,16 @@ def test_collisions_are_annotated_after_contracts_and_before_tests():
     assert "BREAKING_API_CHANGE" in bodies[0]
     assert "cross-PR collision" in bodies[1]
     assert "Test coverage" in bodies[2]
+
+
+def test_parse_ref_accepts_a_line_range():
+    assert parse_ref("src/a.py:12-34") == ("src/a.py", 12)
+
+
+def test_parse_ref_accepts_trailing_words():
+    assert parse_ref("src/a.py:7 test_name") == ("src/a.py", 7)
+    assert parse_ref("src/repo_ref.py:1-36 (module with parse_repo)") == ("src/repo_ref.py", 1)
+
+
+def test_parse_ref_rejects_digits_glued_to_text():
+    assert parse_ref("src/a.py:12abc") is None
