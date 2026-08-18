@@ -633,3 +633,16 @@ def test_api_pr_passes_claim_confidence_through(client, tmp_path):
     (d / "findings.json").write_text(json.dumps(findings))
     data = client.get("/api/repos/sample-org/sample-app/pr/77").json()
     assert data["claims"][0]["confidence"] == 0.9
+
+
+def test_repo_mode_and_remove_accept_a_full_owner_repo_name(tmp_path, monkeypatch):
+    """The dashboard sends owner/repo (encoded %2F); a bare {repo} param 405s."""
+    cfg_path = _config(tmp_path, monkeypatch,
+                       "org: sample-org\nrepos:\n  sample-app: manual\n")
+    c = TestClient(app)
+    r = c.post("/api/config/repos/sample-org%2Fsample-app/mode", json={"mode": "auto"})
+    assert r.status_code == 200
+    assert load_config(cfg_path)["repos"] == {"sample-app": "auto"}
+    r = c.delete("/api/config/repos/sample-org%2Fsample-app")
+    assert r.status_code == 200
+    assert load_config(cfg_path)["repos"] == {}

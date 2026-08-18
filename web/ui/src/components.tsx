@@ -25,6 +25,22 @@ export function StatusWord({ status }: { status: string }) {
   )
 }
 
+/** Non-zero verdict counts as toned mono chips — shared by the repo cards
+ * and the PR queue header. */
+export function VerdictChips({ counts }: { counts: Record<string, number> | undefined }) {
+  const entries = Object.entries(counts ?? {}).filter(([, n]) => n > 0)
+  if (!entries.length) return null
+  return (
+    <div className="flex flex-wrap gap-x-3 gap-y-1 font-mono text-[11px] tabular-nums">
+      {entries.map(([verdict, n]) => (
+        <span key={verdict} className="whitespace-nowrap text-ink-muted">
+          {n} <StatusWord status={verdict} />
+        </span>
+      ))}
+    </div>
+  )
+}
+
 export function Tile({ label, value, note }: { label: string; value: ReactNode; note?: string }) {
   return (
     <div className="tile bg-surface px-[18px] pt-4 pb-[18px]">

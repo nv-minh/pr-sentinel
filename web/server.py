@@ -230,7 +230,7 @@ def api_set_language(payload: dict):
     return {"ok": True, "language": language}
 
 
-@app.post("/api/config/repos/{repo}/mode")
+@app.post("/api/config/repos/{repo:path}/mode")
 def api_set_mode(repo: str, payload: dict):
     path = _require_config()
     try:
@@ -260,7 +260,7 @@ def api_add_repo(payload: dict):
     return {"ok": True, "repo": repo}
 
 
-@app.delete("/api/config/repos/{repo}")
+@app.delete("/api/config/repos/{repo:path}")
 def api_remove_repo(repo: str):
     path = _require_config()
     try:

@@ -11,7 +11,7 @@ const REPO = {
   avg_verification_score: 0.5, has_data: true,
   verdict_count: { ACCURATE: 0, PARTIAL: 1, MISLEADING: 1, NO_CLAIMS: 0 },
   gate_count: { pass: 0, warn: 1, fail: 1, unknown: 0 },
-  prs: [], open_prs: [], open_questions: 1,
+  prs: [], open_prs: [], open_questions: 1, mode: 'auto',
 }
 
 // A repo detail fixture with an open PR, used only by the Vietnamese
@@ -155,11 +155,13 @@ afterEach(() => {
 afterEach(() => act(() => setLang('en')))
 
 describe('App', () => {
-  it('renders the repo ledger', async () => {
+  it('renders the repo card grid with a link and a mode badge', async () => {
     await render('/')
-    expect(container.textContent).toContain('demo/app')
+    const link = container.querySelector('a[href="/repos/demo/app"]')
+    expect(link?.textContent).toContain('demo/app')
     expect(container.textContent).toContain('6 bugs')
     expect(container.textContent).toContain('50% verified')
+    expect(container.textContent).toContain('auto') // the literal YAML mode
   })
 
   it('renders the gate band with a legend on the repo page', async () => {
@@ -192,10 +194,11 @@ describe('App', () => {
 
     clickLangToggle()
 
-    expect(container.textContent).toContain('Kho mã đã review')
     expect(container.textContent).toContain('6 lỗi') // repos.bugs, interpolated
     expect(container.textContent).toContain('50% đã xác minh') // repos.verified, interpolated
-    expect(container.textContent).not.toContain('Reviewed repositories')
+    // config.modeAria, interpolated with the repo name — the mode control
+    // lives on the repo card now that Config lost its repo table.
+    expect(container.querySelector('[aria-label="Chế độ cho demo/app"]')).toBeTruthy()
     expect(container.textContent).not.toContain('6 bugs')
 
     // Switch back inside the test: `lang` is module-level (see i18n.ts), so
@@ -236,23 +239,19 @@ describe('App', () => {
     expect(container.textContent).toContain('Blocking (3)')
   })
 
-  it('renders the config page in Vietnamese, with a repo name landing inside the mode select aria-label', async () => {
+  it('renders the config page in Vietnamese', async () => {
     await render('/config')
     expect(container.textContent).toContain('What the poller watches')
     expect(container.textContent).toContain('Model provider')
-    expect(container.querySelector('[aria-label="Mode for demo/app"]')).toBeTruthy()
 
     clickLangToggle()
 
     expect(container.textContent).toContain('Bộ quét đang theo dõi những gì')
     expect(container.textContent).toContain('Nhà cung cấp model')
-    // config.modeAria, interpolated with the repo name
-    expect(container.querySelector('[aria-label="Chế độ cho demo/app"]')).toBeTruthy()
     expect(container.textContent).not.toContain('What the poller watches')
 
     clickLangToggle()
     expect(container.textContent).toContain('What the poller watches')
-    expect(container.querySelector('[aria-label="Mode for demo/app"]')).toBeTruthy()
   })
 
   it('switches to the cross-PR tab', async () => {
