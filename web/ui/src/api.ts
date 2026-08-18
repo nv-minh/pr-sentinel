@@ -192,6 +192,31 @@ export interface PrDetail {
   replies?: { author: string; body: string; created_at: string; source: string }[]
 }
 
+export interface GithubAccount {
+  login: string
+  active: boolean
+  token_present: boolean
+}
+
+/** An open PR as GitHub reports it, merged with what `sessions/` already holds —
+ *  the server returns `OpenPr`'s fields plus the GitHub-only ones. */
+export interface GithubPr extends OpenPr {
+  updated_at: string
+  author: string
+}
+
+export interface GithubRepo {
+  owner: string
+  repo: string
+  private: boolean
+  pushed_at: string
+  open_pr_count: number
+  reviewed_count: number
+  /** true when the repo has more open PRs than one page of the query returns */
+  truncated: boolean
+  prs: GithubPr[]
+}
+
 export interface ProviderInfo {
   name: string
   base_url: string
@@ -300,6 +325,27 @@ export const api = {
     }),
   removeRepo: (repo: string) =>
     request<any>(`/api/config/repos/${encodeURIComponent(repo)}`, { method: 'DELETE' }),
+  githubAccounts: () =>
+    request<{ accounts: GithubAccount[]; active: string; gh_available: boolean }>(
+      '/api/github/accounts',
+    ),
+  addGithubAccount: (token: string) =>
+    request<{ login: string }>('/api/github/accounts', {
+      method: 'POST',
+      body: JSON.stringify({ token }),
+    }),
+  setActiveGithubAccount: (login: string) =>
+    request<any>(`/api/github/accounts/${encodeURIComponent(login)}/active`, {
+      method: 'POST',
+    }),
+  removeGithubAccount: (login: string) =>
+    request<any>(`/api/github/accounts/${encodeURIComponent(login)}`, {
+      method: 'DELETE',
+    }),
+  githubRepos: () =>
+    request<{ login: string; repos: GithubRepo[]; truncated: boolean }>(
+      '/api/github/repos',
+    ),
   startReview: (owner: string, repo: string, pr: number, reply = false) =>
     request<any>(`/api/repos/${owner}/${repo}/pr/${pr}/review?reply=${reply}`, {
       method: 'POST',

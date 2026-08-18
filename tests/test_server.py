@@ -646,3 +646,151 @@ def test_repo_mode_and_remove_accept_a_full_owner_repo_name(tmp_path, monkeypatc
     r = c.delete("/api/config/repos/sample-org%2Fsample-app")
     assert r.status_code == 200
     assert load_config(cfg_path)["repos"] == {}
+
+# ---------------------------------------------------------------- github accounts
+
+@pytest.fixture
+def accounts_env(tmp_path, monkeypatch):
+    """An empty account store in a throwaway .env, isolated from the real one.
+
+    The endpoints write into the real `os.environ` (that is how the CLI and the
+    poller pick an account up), and monkeypatch.delenv records no undo for a
+    name that was not set — so the PRS_GH_* keys are saved and restored by hand.
+    Leaving them behind would hand every later test a connected account.
+    """
+    import github_accounts
+
+    saved = {k: v for k, v in os.environ.items() if k.startswith("PRS_GH_")}
+
+    def clear():
+        for name in [k for k in os.environ if k.startswith("PRS_GH_")]:
+            del os.environ[name]
+
+    clear()
+    monkeypatch.setattr(github_accounts, "ENV_PATH", tmp_path / ".env")
+    monkeypatch.setenv("PRS_SESSION_ROOT", str(tmp_path / "sessions"))
+    yield tmp_path / ".env"
+    clear()
+    os.environ.update(saved)
+
+
+def test_accounts_start_empty(accounts_env):
+    body = TestClient(app).get("/api/github/accounts").json()
+    assert body["accounts"] == []
+    assert body["active"] == ""
+
+
+def test_adding_a_token_verifies_it_and_reports_only_the_login(accounts_env,
+                                                               monkeypatch):
+    monkeypatch.setattr("gh.run_gh", lambda args, **kw: {"login": "nv-minh"})
+    client = TestClient(app)
+
+    r = client.post("/api/github/accounts", json={"token": "ghp_secret"})
+    assert r.status_code == 200
+    assert r.json() == {"ok": True, "login": "nv-minh"}
+    assert "ghp_secret" not in r.text
+
+    body = client.get("/api/github/accounts").json()
+    assert body["active"] == "nv-minh"
+    assert body["accounts"] == [{"login": "nv-minh", "active": True,
+                                 "token_present": True}]
+    assert "ghp_secret" not in client.get("/api/github/accounts").text
+
+
+def test_an_empty_token_is_rejected(accounts_env):
+    r = TestClient(app).post("/api/github/accounts", json={"token": "  "})
+    assert r.status_code == 400
+    assert "token is required" in r.json()["detail"]
+
+
+def test_a_token_github_refuses_is_a_400_not_a_500(accounts_env, monkeypatch):
+    def reject(args, **kw):
+        raise RuntimeError("HTTP 401: Bad credentials")
+
+    monkeypatch.setattr("gh.run_gh", reject)
+    r = TestClient(app).post("/api/github/accounts", json={"token": "ghp_bad"})
+    assert r.status_code == 400
+    assert "Bad credentials" in r.json()["detail"]
+
+
+def test_switching_and_removing_accounts(accounts_env, monkeypatch):
+    logins = iter(["nv-minh", "acme-bot"])
+    monkeypatch.setattr("gh.run_gh", lambda args, **kw: {"login": next(logins)})
+    client = TestClient(app)
+    client.post("/api/github/accounts", json={"token": "ghp_one"})
+    client.post("/api/github/accounts", json={"token": "ghp_two"})
+
+    assert client.get("/api/github/accounts").json()["active"] == "acme-bot"
+    assert client.post("/api/github/accounts/nv-minh/active").status_code == 200
+    assert client.get("/api/github/accounts").json()["active"] == "nv-minh"
+
+    assert client.delete("/api/github/accounts/nv-minh").status_code == 200
+    assert client.get("/api/github/accounts").json()["active"] == "acme-bot"
+
+    r = client.post("/api/github/accounts/ghost/active")
+    assert r.status_code == 400
+    assert "no GitHub account" in r.json()["detail"]
+
+
+def test_github_repos_needs_an_account_first(accounts_env):
+    r = TestClient(app).get("/api/github/repos")
+    assert r.status_code == 400
+    assert "no GitHub account connected" in r.json()["detail"]
+
+
+GRAPHQL_REPOS = {"data": {"viewer": {"login": "nv-minh", "repositories": {"nodes": [
+    {"nameWithOwner": "sample-org/sample-app", "isPrivate": False,
+     "isArchived": False, "pushedAt": "2026-08-18T00:00:00Z",
+     "pullRequests": {"totalCount": 2, "nodes": [
+         {"number": 77, "title": "Google sign-in", "isDraft": False,
+          "updatedAt": "2026-08-18T00:00:00Z", "author": {"login": "dev1"}},
+         {"number": 78, "title": "Nothing yet", "isDraft": True,
+          "updatedAt": "2026-08-17T00:00:00Z", "author": {"login": "dev2"}}]}}]}}}}
+
+
+def test_github_repos_merges_open_prs_with_review_state(accounts_env, monkeypatch):
+    monkeypatch.setenv("PRS_GH_ACCOUNTS", "nv-minh")
+    monkeypatch.setenv("PRS_GH_ACCOUNT", "nv-minh")
+    monkeypatch.setenv("PRS_GH_TOKEN_NV_MINH", "ghp_one")
+    _write_session(accounts_env.parent / "sessions", "sample-org", "sample-app", 77)
+    monkeypatch.setattr("gh.run_gh", lambda args, **kw: GRAPHQL_REPOS)
+
+    body = TestClient(app).get("/api/github/repos").json()
+    assert body["login"] == "nv-minh"
+    record = body["repos"][0]
+    assert (record["owner"], record["repo"]) == ("sample-org", "sample-app")
+    assert record["open_pr_count"] == 2
+    assert record["reviewed_count"] == 1
+    by_pr = {p["pr"]: p for p in record["prs"]}
+    assert by_pr[77]["status"] == "reviewed"
+    assert by_pr[77]["doc_errors"] == 1  # merged from sessions, not from GitHub
+    assert by_pr[78]["status"] == "not_reviewed"
+    assert by_pr[78]["draft"] is True
+    assert by_pr[78]["author"] == "dev2"
+
+
+def test_a_github_outage_is_a_400_not_a_500(accounts_env, monkeypatch):
+    monkeypatch.setenv("PRS_GH_ACCOUNTS", "nv-minh")
+    monkeypatch.setenv("PRS_GH_ACCOUNT", "nv-minh")
+    monkeypatch.setenv("PRS_GH_TOKEN_NV_MINH", "ghp_one")
+
+    def boom(args, **kw):
+        raise RuntimeError("gh api failed: 502")
+
+    monkeypatch.setattr("gh.run_gh", boom)
+    r = TestClient(app).get("/api/github/repos")
+    assert r.status_code == 400
+    assert "GitHub request failed" in r.json()["detail"]
+
+
+def test_the_account_store_does_not_leak_into_later_tests(accounts_env, monkeypatch):
+    """The fixture's own contract — a leak here silently arms every later test."""
+    monkeypatch.setattr("gh.run_gh", lambda args, **kw: {"login": "nv-minh"})
+    TestClient(app).post("/api/github/accounts", json={"token": "ghp_one"})
+    assert os.environ["PRS_GH_ACCOUNT"] == "nv-minh"
+    # teardown runs after this; the paired assertion lives in
+    # test_no_account_state_survived_the_fixture below, which runs after it.
+
+
+def test_no_account_state_survived_the_fixture():
+    assert [k for k in os.environ if k.startswith("PRS_GH_")] == []

@@ -131,13 +131,16 @@ export function GateBand({ counts }: { counts: Record<string, number> | undefine
 }
 
 export function Row({
-  status, title, meta, right, onClick,
+  status, title, meta, right, onClick, expanded,
 }: {
   status: string
   title: ReactNode
   meta?: ReactNode
   right?: ReactNode
   onClick?: () => void
+  /** Set when the row is a disclosure, so a screen reader can tell it opens
+   *  something and whether it is open. Left undefined for a plain link row. */
+  expanded?: boolean
 }) {
   const interactive = Boolean(onClick)
   return (
@@ -147,6 +150,7 @@ export function Row({
       }`}
       onClick={onClick}
       role={interactive ? 'button' : undefined}
+      aria-expanded={interactive && expanded !== undefined ? expanded : undefined}
       tabIndex={interactive ? 0 : undefined}
       onKeyDown={interactive ? (e) => {
         if (e.target !== e.currentTarget) return

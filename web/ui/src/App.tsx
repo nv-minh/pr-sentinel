@@ -1,3 +1,4 @@
+import { Accounts } from './pages/Accounts'
 import { Config } from './pages/Config'
 import { Workspace } from './workspace/Workspace'
 import { RepoDetail } from './pages/RepoDetail'
@@ -32,6 +33,10 @@ export function App() {
                 aria-current={route.name === 'repos' ? 'page' : undefined}>
             {t('nav.repos')}
           </Link>
+          <Link to="/github" className={NAV_LINK}
+                aria-current={route.name === 'github' ? 'page' : undefined}>
+            {t('nav.github')}
+          </Link>
           <Link to="/config" className={NAV_LINK}
                 aria-current={route.name === 'config' ? 'page' : undefined}>
             {t('nav.config')}
@@ -57,6 +62,7 @@ export function App() {
       <main>
         {route.name === 'repos' && <Repos />}
         {route.name === 'config' && <Config />}
+        {route.name === 'github' && <Accounts />}
         {route.name === 'repo' && <RepoDetail owner={route.owner} repo={route.repo} />}
         {route.name === 'pr' && (
           <Workspace owner={route.owner} repo={route.repo} pr={route.pr} />
