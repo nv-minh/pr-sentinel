@@ -9,7 +9,11 @@ from autoreview_config import load_config
 from web.server import app
 
 SNAPSHOT = {"pr": 77, "title": "Google sign-in", "author": "dev1", "base": "main",
-            "head": "x", "files": [], "commits": [], "threads": [],
+            "head": "x", "base_sha": "b1", "head_sha": "h1",
+            "files": [{"filename": "a.dart", "status": "modified", "additions": 1,
+                       "deletions": 0, "patch": "@@ -1,2 +1,3 @@\n import io\n+import x\n main()"}],
+            "commits": [{"sha": "3c1d0aa", "message": "feat: sign-in"}],
+            "threads": [],
             "pruned": [{"filename": "yarn.lock", "reason": "lockfile", "dropped": True}]}
 
 FINDINGS = {
@@ -492,3 +496,301 @@ def test_graph_endpoint_serves_the_demo_session(monkeypatch):
 def test_graph_endpoint_404s_for_an_unknown_pr(tmp_path, monkeypatch):
     monkeypatch.setenv("PRS_SESSION_ROOT", str(tmp_path))
     assert TestClient(app).get("/api/repos/demo/app/pr/999/graph").status_code == 404
+
+
+# ------------------------------------------------------------- workspace data API
+
+def test_api_pr_files_serves_the_snapshot_slice(client):
+    data = client.get("/api/repos/sample-org/sample-app/pr/77/files").json()
+    assert data["files"][0]["filename"] == "a.dart"
+    assert data["files"][0]["patch"].startswith("@@ -1,2 +1,3 @@")
+    assert data["pruned"][0]["filename"] == "yarn.lock"
+    assert data["commits"][0]["sha"] == "3c1d0aa"
+    assert data["base_sha"] == "b1" and data["head_sha"] == "h1"
+
+
+def test_api_pr_files_404_without_snapshot(client):
+    assert client.get("/api/repos/sample-org/sample-app/pr/99/files").status_code == 404
+
+
+def _write_workspace_file(root, rel, text):
+    target = root / "sample-org" / "sample-app" / "pr-77" / "workspace" / rel
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(text)
+    return target
+
+
+def test_api_pr_file_reads_the_workspace_clone(client, tmp_path):
+    _write_workspace_file(tmp_path, "src/a.py", "l1\nl2\nl3\nl4\nl5\n")
+    data = client.get("/api/repos/sample-org/sample-app/pr/77/file",
+                      params={"path": "src/a.py", "start": 2, "end": 4}).json()
+    assert data == {"path": "src/a.py", "start": 2, "end": 4,
+                    "total_lines": 5, "lines": ["l2", "l3", "l4"]}
+
+
+def test_api_pr_file_defaults_and_clamps_the_range(client, tmp_path):
+    _write_workspace_file(tmp_path, "big.py", "\n".join(f"l{i}" for i in range(1, 501)))
+    data = client.get("/api/repos/sample-org/sample-app/pr/77/file",
+                      params={"path": "big.py"}).json()
+    assert data["start"] == 1 and data["end"] == 120 and data["total_lines"] == 500
+    data = client.get("/api/repos/sample-org/sample-app/pr/77/file",
+                      params={"path": "big.py", "start": 1, "end": 9999}).json()
+    assert data["end"] == 400  # hard cap mirrors prune.MAX_PATCH_LINES
+
+
+def test_api_pr_file_rejects_traversal(client, tmp_path):
+    _write_workspace_file(tmp_path, "src/a.py", "x\n")
+    for path in ("../secret.txt", "/etc/passwd", "src/../../pr-77/snapshot.json"):
+        r = client.get("/api/repos/sample-org/sample-app/pr/77/file", params={"path": path})
+        assert r.status_code == 400, path
+
+
+def test_api_pr_file_rejects_a_symlink_escape(client, tmp_path):
+    (tmp_path / "outside.py").write_text("secret\n")
+    ws = tmp_path / "sample-org" / "sample-app" / "pr-77" / "workspace"
+    ws.mkdir(parents=True, exist_ok=True)
+    (ws / "link.py").symlink_to(tmp_path / "outside.py")
+    r = client.get("/api/repos/sample-org/sample-app/pr/77/file", params={"path": "link.py"})
+    assert r.status_code == 400
+
+
+def test_api_pr_file_404_when_workspace_missing(client):
+    r = client.get("/api/repos/sample-org/sample-app/pr/77/file", params={"path": "src/a.py"})
+    assert r.status_code == 404
+
+
+def test_api_pr_extras_returns_each_artifact_or_null(client, tmp_path):
+    d = tmp_path / "sample-org" / "sample-app" / "pr-77"
+    (d / "poc.json").write_text(json.dumps([{"target": "tests/test_a.py", "framework": "pytest",
+                                             "test_code": "def test(): ...",
+                                             "why_it_fails": "wrong total"}]))
+    (d / "patches.json").write_text(json.dumps([{"path": "docs/a.md", "old_snippet": "old",
+                                                 "new_snippet": "new", "line_hint": 3,
+                                                 "why": "stale"}]))
+    data = client.get("/api/repos/sample-org/sample-app/pr/77/extras").json()
+    assert data["poc"][0]["framework"] == "pytest"
+    assert data["patches"][0]["line_hint"] == 3
+    assert data["ticket"] is None
+    assert data["neutralized"] is None
+    assert data["description"] is None
+
+
+def test_api_pr_extras_404_for_an_unknown_session(client):
+    assert client.get("/api/repos/sample-org/sample-app/pr/99/extras").status_code == 404
+
+
+def test_api_trace_joins_usage_and_transcripts(client, tmp_path):
+    d = tmp_path / "sample-org" / "sample-app" / "pr-77"
+    (d / "usage.json").write_text(json.dumps(
+        [{"phase": "verify", "session_id": "v-1", "cost_usd": 1.0}]))
+    t = d / "transcripts"
+    t.mkdir()
+    lines = [
+        json.dumps({"type": "assistant", "uuid": "1",
+                    "message": {"content": [{"type": "text", "text": "Reading pricing"}]}}),
+        json.dumps({"type": "assistant", "uuid": "2",
+                    "message": {"content": [{"type": "tool_use", "name": "Read",
+                                             "input": {"file_path": "src/pricing.py"}}]}}),
+        "not json at all",
+        json.dumps({"type": "user", "message": {"content": "hi"}}),
+    ]
+    (t / "v-1.jsonl").write_text("\n".join(lines))
+    data = client.get("/api/repos/sample-org/sample-app/pr/77/trace").json()
+    assert data == [{"phase": "verify", "session_id": "v-1", "events": [
+        {"type": "text", "summary": "Reading pricing"},
+        {"type": "tool", "tool": "Read", "summary": "src/pricing.py"},
+    ]}]
+
+
+def test_api_trace_is_empty_without_transcripts(client):
+    assert client.get("/api/repos/sample-org/sample-app/pr/77/trace").json() == []
+
+
+def test_unknown_api_get_is_json_404_not_the_spa(client):
+    for path in ("/api/nope", "/api/repos/sample-org/sample-app/pr/77/filez"):
+        r = client.get(path)
+        assert r.status_code == 404, path
+        assert "unknown API path" in r.json()["detail"]
+
+
+def test_api_repos_joins_the_repo_mode(tmp_path, monkeypatch):
+    _config(tmp_path, monkeypatch,
+            "org: sample-org\nrepos:\n  sample-app: manual\n")
+    root = tmp_path / "sessions"
+    _write_session(root, "sample-org", "sample-app", 77)
+    _write_session(root, "other", "thing", 5)
+    repos = {f"{r['owner']}/{r['repo']}": r
+             for r in TestClient(app).get("/api/repos").json()["repos"]}
+    assert repos["sample-org/sample-app"]["mode"] == "manual"
+    assert repos["sample-org/sample-app"]["has_data"] is True
+    assert repos["other/thing"]["mode"] == "unlisted"
+
+
+def test_api_pr_passes_claim_confidence_through(client, tmp_path):
+    d = tmp_path / "sample-org" / "sample-app" / "pr-77"
+    findings = json.loads((d / "findings.json").read_text())
+    findings["claims"][0]["confidence"] = 0.9
+    (d / "findings.json").write_text(json.dumps(findings))
+    data = client.get("/api/repos/sample-org/sample-app/pr/77").json()
+    assert data["claims"][0]["confidence"] == 0.9
+
+
+def test_repo_mode_and_remove_accept_a_full_owner_repo_name(tmp_path, monkeypatch):
+    """The dashboard sends owner/repo (encoded %2F); a bare {repo} param 405s."""
+    cfg_path = _config(tmp_path, monkeypatch,
+                       "org: sample-org\nrepos:\n  sample-app: manual\n")
+    c = TestClient(app)
+    r = c.post("/api/config/repos/sample-org%2Fsample-app/mode", json={"mode": "auto"})
+    assert r.status_code == 200
+    assert load_config(cfg_path)["repos"] == {"sample-app": "auto"}
+    r = c.delete("/api/config/repos/sample-org%2Fsample-app")
+    assert r.status_code == 200
+    assert load_config(cfg_path)["repos"] == {}
+
+# ---------------------------------------------------------------- github accounts
+
+@pytest.fixture
+def accounts_env(tmp_path, monkeypatch):
+    """An empty account store in a throwaway .env, isolated from the real one.
+
+    The endpoints write into the real `os.environ` (that is how the CLI and the
+    poller pick an account up), and monkeypatch.delenv records no undo for a
+    name that was not set — so the PRS_GH_* keys are saved and restored by hand.
+    Leaving them behind would hand every later test a connected account.
+    """
+    import github_accounts
+
+    saved = {k: v for k, v in os.environ.items() if k.startswith("PRS_GH_")}
+
+    def clear():
+        for name in [k for k in os.environ if k.startswith("PRS_GH_")]:
+            del os.environ[name]
+
+    clear()
+    monkeypatch.setattr(github_accounts, "ENV_PATH", tmp_path / ".env")
+    monkeypatch.setenv("PRS_SESSION_ROOT", str(tmp_path / "sessions"))
+    yield tmp_path / ".env"
+    clear()
+    os.environ.update(saved)
+
+
+def test_accounts_start_empty(accounts_env):
+    body = TestClient(app).get("/api/github/accounts").json()
+    assert body["accounts"] == []
+    assert body["active"] == ""
+
+
+def test_adding_a_token_verifies_it_and_reports_only_the_login(accounts_env,
+                                                               monkeypatch):
+    monkeypatch.setattr("gh.run_gh", lambda args, **kw: {"login": "nv-minh"})
+    client = TestClient(app)
+
+    r = client.post("/api/github/accounts", json={"token": "ghp_secret"})
+    assert r.status_code == 200
+    assert r.json() == {"ok": True, "login": "nv-minh"}
+    assert "ghp_secret" not in r.text
+
+    body = client.get("/api/github/accounts").json()
+    assert body["active"] == "nv-minh"
+    assert body["accounts"] == [{"login": "nv-minh", "active": True,
+                                 "token_present": True}]
+    assert "ghp_secret" not in client.get("/api/github/accounts").text
+
+
+def test_an_empty_token_is_rejected(accounts_env):
+    r = TestClient(app).post("/api/github/accounts", json={"token": "  "})
+    assert r.status_code == 400
+    assert "token is required" in r.json()["detail"]
+
+
+def test_a_token_github_refuses_is_a_400_not_a_500(accounts_env, monkeypatch):
+    def reject(args, **kw):
+        raise RuntimeError("HTTP 401: Bad credentials")
+
+    monkeypatch.setattr("gh.run_gh", reject)
+    r = TestClient(app).post("/api/github/accounts", json={"token": "ghp_bad"})
+    assert r.status_code == 400
+    assert "Bad credentials" in r.json()["detail"]
+
+
+def test_switching_and_removing_accounts(accounts_env, monkeypatch):
+    logins = iter(["nv-minh", "acme-bot"])
+    monkeypatch.setattr("gh.run_gh", lambda args, **kw: {"login": next(logins)})
+    client = TestClient(app)
+    client.post("/api/github/accounts", json={"token": "ghp_one"})
+    client.post("/api/github/accounts", json={"token": "ghp_two"})
+
+    assert client.get("/api/github/accounts").json()["active"] == "acme-bot"
+    assert client.post("/api/github/accounts/nv-minh/active").status_code == 200
+    assert client.get("/api/github/accounts").json()["active"] == "nv-minh"
+
+    assert client.delete("/api/github/accounts/nv-minh").status_code == 200
+    assert client.get("/api/github/accounts").json()["active"] == "acme-bot"
+
+    r = client.post("/api/github/accounts/ghost/active")
+    assert r.status_code == 400
+    assert "no GitHub account" in r.json()["detail"]
+
+
+def test_github_repos_needs_an_account_first(accounts_env):
+    r = TestClient(app).get("/api/github/repos")
+    assert r.status_code == 400
+    assert "no GitHub account connected" in r.json()["detail"]
+
+
+GRAPHQL_REPOS = {"data": {"viewer": {"login": "nv-minh", "repositories": {"nodes": [
+    {"nameWithOwner": "sample-org/sample-app", "isPrivate": False,
+     "isArchived": False, "pushedAt": "2026-08-18T00:00:00Z",
+     "pullRequests": {"totalCount": 2, "nodes": [
+         {"number": 77, "title": "Google sign-in", "isDraft": False,
+          "updatedAt": "2026-08-18T00:00:00Z", "author": {"login": "dev1"}},
+         {"number": 78, "title": "Nothing yet", "isDraft": True,
+          "updatedAt": "2026-08-17T00:00:00Z", "author": {"login": "dev2"}}]}}]}}}}
+
+
+def test_github_repos_merges_open_prs_with_review_state(accounts_env, monkeypatch):
+    monkeypatch.setenv("PRS_GH_ACCOUNTS", "nv-minh")
+    monkeypatch.setenv("PRS_GH_ACCOUNT", "nv-minh")
+    monkeypatch.setenv("PRS_GH_TOKEN_NV_MINH", "ghp_one")
+    _write_session(accounts_env.parent / "sessions", "sample-org", "sample-app", 77)
+    monkeypatch.setattr("gh.run_gh", lambda args, **kw: GRAPHQL_REPOS)
+
+    body = TestClient(app).get("/api/github/repos").json()
+    assert body["login"] == "nv-minh"
+    record = body["repos"][0]
+    assert (record["owner"], record["repo"]) == ("sample-org", "sample-app")
+    assert record["open_pr_count"] == 2
+    assert record["reviewed_count"] == 1
+    by_pr = {p["pr"]: p for p in record["prs"]}
+    assert by_pr[77]["status"] == "reviewed"
+    assert by_pr[77]["doc_errors"] == 1  # merged from sessions, not from GitHub
+    assert by_pr[78]["status"] == "not_reviewed"
+    assert by_pr[78]["draft"] is True
+    assert by_pr[78]["author"] == "dev2"
+
+
+def test_a_github_outage_is_a_400_not_a_500(accounts_env, monkeypatch):
+    monkeypatch.setenv("PRS_GH_ACCOUNTS", "nv-minh")
+    monkeypatch.setenv("PRS_GH_ACCOUNT", "nv-minh")
+    monkeypatch.setenv("PRS_GH_TOKEN_NV_MINH", "ghp_one")
+
+    def boom(args, **kw):
+        raise RuntimeError("gh api failed: 502")
+
+    monkeypatch.setattr("gh.run_gh", boom)
+    r = TestClient(app).get("/api/github/repos")
+    assert r.status_code == 400
+    assert "GitHub request failed" in r.json()["detail"]
+
+
+def test_the_account_store_does_not_leak_into_later_tests(accounts_env, monkeypatch):
+    """The fixture's own contract — a leak here silently arms every later test."""
+    monkeypatch.setattr("gh.run_gh", lambda args, **kw: {"login": "nv-minh"})
+    TestClient(app).post("/api/github/accounts", json={"token": "ghp_one"})
+    assert os.environ["PRS_GH_ACCOUNT"] == "nv-minh"
+    # teardown runs after this; the paired assertion lives in
+    # test_no_account_state_survived_the_fixture below, which runs after it.
+
+
+def test_no_account_state_survived_the_fixture():
+    assert [k for k in os.environ if k.startswith("PRS_GH_")] == []

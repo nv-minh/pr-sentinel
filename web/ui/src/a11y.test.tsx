@@ -88,14 +88,42 @@ const GRAPH = {
   ],
 }
 
+// Two connected accounts and one repo, so the account route renders every
+// button it has at rest: Connect, Use, Disconnect, Refresh and Watch.
+const GITHUB_ACCOUNTS = {
+  accounts: [{ login: 'nv-minh', active: true, token_present: true },
+             { login: 'acme-bot', active: false, token_present: true }],
+  active: 'nv-minh',
+  gh_available: true,
+}
+
+const GITHUB_REPOS = {
+  login: 'nv-minh',
+  truncated: false,
+  repos: [{
+    owner: 'demo', repo: 'app', private: true, pushed_at: '2026-08-18T00:00:00Z',
+    open_pr_count: 1, reviewed_count: 0, truncated: false,
+    prs: [{ pr: 9, title: 'Add caching', draft: false, status: 'not_reviewed',
+            rounds: null, bugs: null, doc_errors: null, unavailable: false,
+            updated_at: '2026-08-18T00:00:00Z', author: 'dev1' }],
+  }],
+}
+
 function mockFetch() {
   return vi.fn(async (input: RequestInfo | URL) => {
     const url = String(input)
     const body =
       url === '/api/config' ? CONFIG
+      : url === '/api/github/accounts' ? GITHUB_ACCOUNTS
+      : url === '/api/github/repos' ? GITHUB_REPOS
       : url.endsWith('/pr/8/graph') ? GRAPH
       : url.includes('/pr/8/review/status') ? { running: false, stale: false }
       : url.includes('/pr/8/review/log') ? { log: '', running: false }
+      : url.endsWith('/pr/8/files')
+        ? { files: [], pruned: [], commits: [], threads: [], base_sha: '', head_sha: 'h1' }
+      : url.endsWith('/pr/8/extras')
+        ? { ticket: null, poc: null, patches: null, neutralized: null, description: null }
+      : url.endsWith('/pr/8/trace') ? []
       : url.endsWith('/pr/8') ? PR
       : url.endsWith('/demo/app') ? REPO
       : { repos: [] } // '/api/repos', for the empty repo-list route
@@ -137,6 +165,9 @@ beforeEach(() => {
   }))
   // React Flow (mounted via PipelineGraph on the PR route) measures its
   // container; jsdom reports zeroes without this stub.
+  if (!Element.prototype.scrollIntoView) {
+    Element.prototype.scrollIntoView = () => {}
+  }
   vi.stubGlobal('ResizeObserver', class {
     observe() {}
     unobserve() {}
@@ -200,20 +231,33 @@ describe('accessibility basics', () => {
   // routes are what actually puts PrDetail's ten tabs, PipelineGraph's
   // phase buttons, RepoDetail's Review button and Config's SelectTriggers
   // under test.
-  const routes: { path: string; label: string }[] = [
+  const routes: { path: string; label: string; expand?: boolean }[] = [
     { path: '/config', label: 'config' },
+    { path: '/github', label: 'github accounts' },
+    { path: '/github', label: 'github accounts, repo expanded', expand: true },
     { path: '/repos/demo/app', label: 'repo detail' },
     { path: '/repos/demo/app/pr/8', label: 'pr detail' },
   ]
 
-  for (const { path, label } of routes) {
+  // Some rows only render their controls once opened — the per-PR Review
+  // buttons on /github are inside a collapsed repo row.
+  async function openFirstDisclosure() {
+    const row = container.querySelector('[aria-expanded="false"]') as HTMLElement
+    expect(row).toBeTruthy()
+    await act(async () => { row.click() })
+    expect(container.querySelector('[aria-expanded="true"]')).toBeTruthy()
+  }
+
+  for (const { path, label, expand } of routes) {
     it(`gives every button an accessible name on the ${label} route`, async () => {
       await render(path)
+      if (expand) await openFirstDisclosure()
       expect(unnamedButtons()).toEqual([])
     })
 
     it(`exposes exactly one h1 on the ${label} route`, async () => {
       await render(path)
+      if (expand) await openFirstDisclosure()
       expect(container.querySelectorAll('h1')).toHaveLength(1)
     })
   }

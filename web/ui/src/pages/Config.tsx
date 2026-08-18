@@ -2,10 +2,9 @@ import { useCallback, useEffect, useState } from 'react'
 import type { ProviderInfo } from '../api'
 import { api } from '../api'
 import {
-  Empty, ErrorNotice, Eyebrow, Ledger, Loading, Notice, PageSub, PageTitle, Row, Tile, Tiles,
+  ErrorNotice, Eyebrow, Loading, Notice, PageSub, PageTitle, Tile, Tiles,
 } from '../components'
 import { useLang, useT } from '../i18n'
-import { Button } from '@/components/ui/button'
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
@@ -22,14 +21,12 @@ interface ConfigState {
   gate: { verification_score_min: number }
   provider: ProviderInfo
   providers: string[]
-  repos: { name: string; mode: string }[]
   config_path: string
 }
 
 export function Config() {
   const [cfg, setCfg] = useState<ConfigState | null>(null)
   const [error, setError] = useState('')
-  const [newRepo, setNewRepo] = useState('')
   const [uiLang, setUiLang] = useLang()
   const t = useT()
 
@@ -162,66 +159,6 @@ export function Config() {
       </div>
       <Notice>{t('config.languageFootnote')}</Notice>
 
-      <Eyebrow>{t('config.reposHeading')}</Eyebrow>
-      <div className="my-2.5 flex flex-wrap items-center gap-2.5">
-        <input
-          type="text"
-          className="rounded border border-input bg-surface px-2 py-1.5 font-mono text-xs text-ink"
-          value={newRepo}
-          placeholder={cfg.org ? t('config.repoPlaceholderOrg') : t('config.repoPlaceholder')}
-          onChange={(e) => setNewRepo(e.target.value)}
-        />
-        <Button
-          disabled={!newRepo.trim()}
-          onClick={() => act(async () => {
-            await api.addRepo(newRepo.trim(), 'auto')
-            setNewRepo('')
-          })}
-        >
-          {t('config.watchRepo')}
-        </Button>
-      </div>
-
-      <Ledger>
-        {cfg.repos.length === 0 ? (
-          <Empty>{t('config.noRepos')}</Empty>
-        ) : (
-          cfg.repos.map((r) => (
-            <Row
-              key={r.name}
-              status={r.mode === 'auto' ? 'PASS' : r.mode === 'manual' ? 'PARTIAL' : 'UNVERIFIED'}
-              title={r.name}
-              meta={
-                r.mode === 'auto' ? t('config.modeAuto')
-                  : r.mode === 'manual' ? t('config.modeManual')
-                  : t('config.modeUnlisted')
-              }
-              right={
-                <>
-                  <Select
-                    value={r.mode === 'unlisted' ? 'manual' : r.mode}
-                    onValueChange={(mode) => act(() => api.setMode(r.name, mode))}
-                  >
-                    <SelectTrigger className="h-7 w-[110px] font-mono text-xs" aria-label={t('config.modeAria', { repo: r.name })}>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="auto" className="font-mono text-xs">auto</SelectItem>
-                      <SelectItem value="manual" className="font-mono text-xs">manual</SelectItem>
-                    </SelectContent>
-                  </Select>{' '}
-                  {r.mode !== 'unlisted' && (
-                    <Button variant="outline" size="sm"
-                            onClick={() => act(() => api.removeRepo(r.name))}>
-                      {t('config.remove')}
-                    </Button>
-                  )}
-                </>
-              }
-            />
-          ))
-        )}
-      </Ledger>
     </>
   )
 }

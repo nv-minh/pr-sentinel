@@ -347,3 +347,14 @@ def test_siblings_max_must_be_a_positive_int(tmp_path):
                       f"repos: {{}}\nsiblings:\n  max_siblings: {bad}\n")
         with pytest.raises(ValueError, match="siblings.max_siblings"):
             load_config(path)
+
+
+def test_set_repo_mode_normalizes_to_an_existing_key(tmp_path):
+    """A full-name write must not duplicate a bare-name entry, and vice versa."""
+    p = _write(tmp_path / "a.yml", "org: sample-org\nrepos:\n  sample-app: manual\n")
+    set_repo_mode(p, "sample-org/sample-app", "auto")
+    cfg = load_config(p)
+    assert cfg["repos"] == {"sample-app": "auto"}
+    p2 = _write(tmp_path / "b.yml", "org: sample-org\nrepos:\n  acme/api: manual\n")
+    set_repo_mode(p2, "api", "auto")
+    assert load_config(p2)["repos"] == {"acme/api": "auto"}

@@ -22,11 +22,12 @@ function prefersReducedMotion(): boolean {
  *  screen reader, so the list below carries the same information and the same
  *  ability to select a phase. */
 export default function PipelineGraph({
-  pipeline, selected, onSelect,
+  pipeline, selected, onSelect, minZoom = 0.4,
 }: {
   pipeline: Pipeline
   selected: string | null
   onSelect: (id: string) => void
+  minZoom?: number
 }) {
   const [theme] = useTheme()
   const t = useT()
@@ -95,7 +96,7 @@ export default function PipelineGraph({
           nodesFocusable={false}
           edgesFocusable={false}
           onNodeClick={(_, node) => onSelect(node.id)}
-          minZoom={0.4}
+          minZoom={minZoom}
           maxZoom={1.4}
         >
           <Background gap={18} size={1} color="var(--hairline)" />

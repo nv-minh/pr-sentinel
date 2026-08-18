@@ -66,7 +66,7 @@ function render(node: React.ReactNode) {
 describe('translate', () => {
   it('returns the string for the requested language', () => {
     expect(translate('en', 'nav.repos')).toBe('Repos')
-    expect(translate('vi', 'nav.repos')).toBe('Kho mã')
+    expect(translate('vi', 'nav.repos')).toBe('Repo')
   })
 
   it('substitutes every occurrence of a named variable', () => {
@@ -111,7 +111,7 @@ describe('useLang', () => {
 
     expect(greeting()).toBe('Repos')
     act(() => { (container.querySelector('button') as HTMLButtonElement).click() })
-    expect(greeting()).toBe('Kho mã')
+    expect(greeting()).toBe('Repo')
   })
 
   it('writes the choice to <html lang> and localStorage', () => {

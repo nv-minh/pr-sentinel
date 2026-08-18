@@ -144,15 +144,17 @@ describe('PipelineGraph', () => {
 
     act(() => { (container.querySelector('[data-testid="to-vi"]') as HTMLButtonElement).click() })
 
-    expect(list().textContent).toContain('Ảnh chụp') // graph.phase.snapshot
+    // 'Snapshot' stays English by the glossary; 'verify' is a translated
+    // phase, so it carries the assertion now.
+    expect(list().textContent).toContain('Xác minh') // graph.phase.verify
     expect(list().textContent).toContain('xong') // graph.statusDone
-    expect(list().textContent).not.toContain('Snapshot')
+    expect(list().textContent).not.toContain('Verify')
     expect(list().textContent).not.toContain('done')
     // Unscoped: catches the canvas nodes too (PhaseNode.tsx), not just the
     // screen-reader list above — a sighted user and a screen-reader user
     // reading different words for the same phase is worse than both reading
     // English.
-    expect(container.textContent).not.toContain('Snapshot')
+    expect(container.textContent).not.toContain('Verify')
 
     // Switch back inside the test: the store is module-level, so leaving it on
     // 'vi' would hand the next test in this file a Vietnamese pipeline text

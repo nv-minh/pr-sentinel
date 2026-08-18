@@ -25,6 +25,22 @@ export function StatusWord({ status }: { status: string }) {
   )
 }
 
+/** Non-zero verdict counts as toned mono chips — shared by the repo cards
+ * and the PR queue header. */
+export function VerdictChips({ counts }: { counts: Record<string, number> | undefined }) {
+  const entries = Object.entries(counts ?? {}).filter(([, n]) => n > 0)
+  if (!entries.length) return null
+  return (
+    <div className="flex flex-wrap gap-x-3 gap-y-1 font-mono text-[11px] tabular-nums">
+      {entries.map(([verdict, n]) => (
+        <span key={verdict} className="whitespace-nowrap text-ink-muted">
+          {n} <StatusWord status={verdict} />
+        </span>
+      ))}
+    </div>
+  )
+}
+
 export function Tile({ label, value, note }: { label: string; value: ReactNode; note?: string }) {
   return (
     <div className="tile bg-surface px-[18px] pt-4 pb-[18px]">
@@ -115,13 +131,16 @@ export function GateBand({ counts }: { counts: Record<string, number> | undefine
 }
 
 export function Row({
-  status, title, meta, right, onClick,
+  status, title, meta, right, onClick, expanded,
 }: {
   status: string
   title: ReactNode
   meta?: ReactNode
   right?: ReactNode
   onClick?: () => void
+  /** Set when the row is a disclosure, so a screen reader can tell it opens
+   *  something and whether it is open. Left undefined for a plain link row. */
+  expanded?: boolean
 }) {
   const interactive = Boolean(onClick)
   return (
@@ -131,6 +150,7 @@ export function Row({
       }`}
       onClick={onClick}
       role={interactive ? 'button' : undefined}
+      aria-expanded={interactive && expanded !== undefined ? expanded : undefined}
       tabIndex={interactive ? 0 : undefined}
       onKeyDown={interactive ? (e) => {
         if (e.target !== e.currentTarget) return
@@ -150,21 +170,6 @@ export function Row({
         </div>
       ) : null}
     </div>
-  )
-}
-
-export function Citations({ items }: { items: string[] }) {
-  const t = useT()
-  if (!items?.length) return <span>{t('citations.none')}</span>
-  return (
-    <>
-      {items.map((item, i) => (
-        <span className="mr-[5px] inline-block rounded-sm border border-hairline-strong px-[5px] py-px font-mono text-[11.5px] text-ink"
-              key={`${item}-${i}`}>
-          {item}
-        </span>
-      ))}
-    </>
   )
 }
 

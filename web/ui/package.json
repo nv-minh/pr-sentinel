@@ -10,6 +10,8 @@
     "test": "vitest"
   },
   "dependencies": {
+    "@git-diff-view/lowlight": "^0.1.7",
+    "@git-diff-view/react": "^0.1.7",
     "@xyflow/react": "^12.11.3",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",

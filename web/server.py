@@ -16,13 +16,14 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+import github_accounts
 import providers
 from autoreview_config import load_config as load_autoreview_config
 from autoreview_config import (auto_repos, list_repos, remove_repo,
                                set_language, set_provider, set_repo_mode)
 from config import load_config
 from run import main as run_main
-from web import metrics
+from web import metrics, trace
 
 BASE = Path(__file__).resolve().parent
 UI_DIST = BASE / "ui" / "dist"
@@ -59,10 +60,13 @@ def api_repos():
     repos.sort(key=lambda r: r["prs_total"], reverse=True)
 
     seen = {(r["owner"], r["repo"]) for r in repos}
+    modes: dict[str, str] = {}
+    org = ""
     path = _config_path()
     if path.exists():
         try:
             cfg = load_autoreview_config(path)
+            modes, org = dict(cfg.get("repos") or {}), cfg.get("org") or ""
             for owner, repo in auto_repos(cfg):
                 if (owner, repo) not in seen:
                     repos.append({"owner": owner, "repo": repo, "prs_total": 0,
@@ -71,6 +75,10 @@ def api_repos():
                                   "cost_total": 0.0, "has_data": False, "mode": "auto"})
         except (ValueError, OSError):
             pass
+    for rec in repos:
+        if "mode" not in rec:
+            bare = modes.get(rec["repo"]) if org == rec["owner"] else None
+            rec["mode"] = modes.get(f"{rec['owner']}/{rec['repo']}") or bare or "unlisted"
     return {"repos": repos}
 
 
@@ -124,6 +132,44 @@ def api_graph(owner: str, repo: str, pr: int):
     if graph is None:
         raise HTTPException(status_code=404, detail="no session for this PR")
     return graph
+
+
+@app.get("/api/repos/{owner}/{repo}/pr/{pr}/files")
+def api_pr_files(owner: str, repo: str, pr: int):
+    """The snapshot's per-file diffs, for the workspace's diff viewer."""
+    data = metrics.snapshot_slice(_session_root(), owner, repo, pr)
+    if data is None:
+        raise HTTPException(status_code=404, detail="no snapshot for this PR")
+    return data
+
+
+@app.get("/api/repos/{owner}/{repo}/pr/{pr}/file")
+def api_pr_file(owner: str, repo: str, pr: int, path: str,
+                start: int = 1, end: int | None = None):
+    """A line slice from the workspace clone — evidence outside the diff."""
+    try:
+        data = metrics.workspace_file(_session_root(), owner, repo, pr,
+                                      path, start, end)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    if data is None:
+        raise HTTPException(status_code=404, detail="workspace or file not available")
+    return data
+
+
+@app.get("/api/repos/{owner}/{repo}/pr/{pr}/extras")
+def api_pr_extras(owner: str, repo: str, pr: int):
+    """Optional artifacts (ticket, poc, patches, neutralized, description)."""
+    data = metrics.pr_extras(_session_root(), owner, repo, pr)
+    if data is None:
+        raise HTTPException(status_code=404, detail="no session for this PR")
+    return data
+
+
+@app.get("/api/repos/{owner}/{repo}/pr/{pr}/trace")
+def api_pr_trace(owner: str, repo: str, pr: int):
+    """The agent's tool-call timeline per phase; [] when no transcript exists."""
+    return trace.pr_trace(_session_root(), owner, repo, pr)
 
 
 # ------------------------------------------------------------------------- config
@@ -185,7 +231,7 @@ def api_set_language(payload: dict):
     return {"ok": True, "language": language}
 
 
-@app.post("/api/config/repos/{repo}/mode")
+@app.post("/api/config/repos/{repo:path}/mode")
 def api_set_mode(repo: str, payload: dict):
     path = _require_config()
     try:
@@ -215,7 +261,7 @@ def api_add_repo(payload: dict):
     return {"ok": True, "repo": repo}
 
 
-@app.delete("/api/config/repos/{repo}")
+@app.delete("/api/config/repos/{repo:path}")
 def api_remove_repo(repo: str):
     path = _require_config()
     try:
@@ -223,6 +269,66 @@ def api_remove_repo(repo: str):
     except (ValueError, OSError) as e:
         raise HTTPException(status_code=400, detail=str(e))
     return {"ok": True, "repo": repo}
+
+
+# ----------------------------------------------------------------- github accounts
+
+@app.get("/api/github/accounts")
+def api_github_accounts():
+    """Which GitHub accounts are configured, and which one calls are made as.
+
+    Tokens are never in the response — only whether one is stored, the way
+    `/api/config` reports the provider key.
+    """
+    from gh import gh_available
+
+    return {"accounts": github_accounts.list_accounts(),
+            "active": github_accounts.active_login(),
+            "gh_available": gh_available()}
+
+
+@app.post("/api/github/accounts")
+def api_add_github_account(payload: dict):
+    """Verify a personal access token, store it, and switch to that account."""
+    token = (payload.get("token") or "").strip()
+    if not token:
+        raise HTTPException(status_code=400, detail="token is required")
+    try:
+        login = github_accounts.add_account(token)
+    except (ValueError, OSError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"ok": True, "login": login}
+
+
+@app.post("/api/github/accounts/{login}/active")
+def api_set_active_github_account(login: str):
+    try:
+        github_accounts.set_active(login)
+    except (ValueError, OSError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"ok": True, "login": login}
+
+
+@app.delete("/api/github/accounts/{login}")
+def api_remove_github_account(login: str):
+    try:
+        github_accounts.remove_account(login)
+    except (ValueError, OSError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"ok": True, "login": login}
+
+
+@app.get("/api/github/repos")
+def api_github_repos():
+    """Repos the active account can reach, with their open PRs and review state."""
+    if not github_accounts.active_token():
+        raise HTTPException(
+            status_code=400,
+            detail="no GitHub account connected — add a personal access token first")
+    try:
+        return metrics.account_projects(_session_root())
+    except (RuntimeError, OSError) as e:
+        raise HTTPException(status_code=400, detail=f"GitHub request failed: {e}")
 
 
 # ------------------------------------------------------------------------- review
@@ -384,6 +490,13 @@ def trigger_review(owner: str, repo: str, pr: int, reply: bool = False):
 
 
 # ---------------------------------------------------------------------------- SPA
+
+# Register new /api routes ABOVE this guard: it must stay the last /api GET so
+# an unknown API path is a JSON 404 instead of index.html from the catch-all.
+@app.get("/api/{rest:path}")
+def api_not_found(rest: str):
+    raise HTTPException(status_code=404, detail=f"unknown API path: /api/{rest}")
+
 
 if (UI_DIST / "assets").is_dir():
     app.mount("/assets", StaticFiles(directory=str(UI_DIST / "assets")), name="assets")

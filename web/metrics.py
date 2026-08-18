@@ -2,7 +2,7 @@
 import json
 import sys
 from datetime import datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from describe import MIN_BODY_CHARS
 from poc import broken
@@ -208,6 +208,7 @@ def pr_detail(session_root: Path, owner: str, repo: str, n: int) -> dict | None:
             "status": fc.get("status", ""),
             "evidence": fc.get("evidence", []),
             "note": fc.get("note", ""),
+            "confidence": fc.get("confidence"),
         })
 
     answers = _read_json_list(session_dir / "answers.json")
@@ -234,6 +235,109 @@ def pr_detail(session_root: Path, owner: str, repo: str, n: int) -> dict | None:
     }
 
 
+def snapshot_slice(session_root: Path, owner: str, repo: str, n: int) -> dict | None:
+    """The diff-viewer payload from snapshot.json. None when missing/corrupt."""
+    snapshot = _read_json(session_root / owner / repo / f"pr-{n}" / "snapshot.json")
+    if snapshot is None:
+        return None
+    return {
+        "files": snapshot.get("files", []),
+        "pruned": snapshot.get("pruned", []),
+        "commits": snapshot.get("commits", []),
+        "threads": snapshot.get("threads", []),
+        "base_sha": snapshot.get("base_sha", ""),
+        "head_sha": snapshot.get("head_sha", ""),
+    }
+
+
+# Optional artifacts a review may or may not have written; each is None when
+# its file is absent so the dashboard can degrade per panel, not per page.
+EXTRA_FILES = ("ticket", "poc", "patches", "neutralized", "description")
+
+
+def pr_extras(session_root: Path, owner: str, repo: str, n: int) -> dict | None:
+    """{ticket, poc, patches, neutralized, description} — None per absent file."""
+    session_dir = session_root / owner / repo / f"pr-{n}"
+    if not session_dir.is_dir():
+        return None
+    extras = {}
+    for name in EXTRA_FILES:
+        path = session_dir / f"{name}.json"
+        if not path.exists():
+            extras[name] = None
+            continue
+        try:
+            extras[name] = json.loads(path.read_text())
+        except (OSError, json.JSONDecodeError):
+            _warn(f"unreadable {path}")
+            extras[name] = None
+    return extras
+
+
+WORKSPACE_MAX_LINES = 400   # mirrors prune.MAX_PATCH_LINES
+WORKSPACE_WINDOW = 120      # default slice when no end is given
+
+
+def workspace_file(session_root: Path, owner: str, repo: str, n: int,
+                   path: str, start: int = 1, end: int | None = None) -> dict | None:
+    """A line slice of one file from the workspace clone at the PR head.
+
+    None when the workspace or file is absent (demo/CI sessions carry no
+    clone). Raises ValueError for absolute paths, `..` segments, or anything
+    that resolves outside the workspace — a symlink escape resolves outside
+    and fails the containment check.
+    """
+    pure = PurePosixPath(path)
+    if pure.is_absolute() or ".." in pure.parts or path.startswith("\\"):
+        raise ValueError(f"path escapes the workspace: {path!r}")
+    workspace = (session_root / owner / repo / f"pr-{n}" / "workspace").resolve()
+    if not workspace.is_dir():
+        return None
+    target = (workspace / path).resolve()
+    if not target.is_relative_to(workspace):
+        raise ValueError(f"path escapes the workspace: {path!r}")
+    if not target.is_file():
+        return None
+    lines = target.read_text(errors="replace").splitlines()
+    start = max(1, start)
+    end = min(len(lines),
+              end if end is not None else start + WORKSPACE_WINDOW - 1,
+              start + WORKSPACE_MAX_LINES - 1)
+    return {"path": path, "start": start, "end": end,
+            "total_lines": len(lines), "lines": lines[start - 1:end]}
+
+def pr_status_row(session_root: Path, owner: str, repo: str, n: int, *,
+                  title: str = "", draft: bool = False,
+                  unavailable: bool = False) -> dict:
+    """One open PR merged with whatever `sessions/` knows about it.
+
+    status: reviewed | reviewing | not_reviewed. A live lock wins over existing
+    findings — a re-review in flight is "reviewing", even on a PR reviewed
+    yesterday. A session directory with no findings and no live lock is a review
+    that started and did not finish, which is still not a clean "not reviewed".
+    """
+    d = session_root / owner / repo / f"pr-{n}"
+    info = review_process_info(d)
+    reviewed = (d / "findings.json").exists()
+    rec = pr_record(session_root, owner, repo, n) if reviewed else None
+    row = {"pr": n, "title": title, "draft": bool(draft),
+           "status": "not_reviewed", "rounds": None,
+           "pid": None, "started_at": None,
+           "bugs": None, "doc_errors": None, "unavailable": unavailable}
+    if info:
+        row.update(status="reviewing", pid=info["pid"],
+                   started_at=info["started_at"],
+                   bugs=rec["bugs"] if rec else None,
+                   doc_errors=rec["doc_errors"] if rec else None)
+    elif reviewed:
+        row.update(status="reviewed", rounds=_read_rounds(d),
+                   bugs=rec["bugs"] if rec else 0,
+                   doc_errors=rec["doc_errors"] if rec else 0)
+    elif d.exists():
+        row.update(status="reviewing")
+    return row
+
+
 def open_prs(session_root: Path, owner: str, repo: str, gh=None) -> list[dict]:
     """Merge GitHub open PRs with session state.
 
@@ -252,55 +356,14 @@ def open_prs(session_root: Path, owner: str, repo: str, gh=None) -> list[dict]:
         prs = []
         unavailable = True
 
-    session_dir = session_root / owner / repo
     seen = set()
     for p in prs:
         n = int(p["number"])
         seen.add(n)
-        d = session_dir / f"pr-{n}"
-        info = review_process_info(d)
-        if info:  # lock sống → đang review/re-review (kể cả khi đã có findings)
-            rec = pr_record(session_root, owner, repo, n) if (d / "findings.json").exists() else None
-            rows.append({
-                "pr": n, "title": p.get("title", ""),
-                "draft": bool(p.get("draft")),
-                "status": "reviewing", "rounds": None,
-                "pid": info["pid"],
-                "started_at": info["started_at"],
-                "bugs": rec["bugs"] if rec else None,
-                "doc_errors": rec["doc_errors"] if rec else None,
-                "unavailable": unavailable,
-            })
-        elif (d / "findings.json").exists():
-            rec = pr_record(session_root, owner, repo, n)
-            rows.append({
-                "pr": n, "title": p.get("title", ""),
-                "draft": bool(p.get("draft")),
-                "status": "reviewed",
-                "rounds": _read_rounds(d),
-                "bugs": rec["bugs"] if rec else 0,
-                "doc_errors": rec["doc_errors"] if rec else 0,
-                "unavailable": unavailable,
-            })
-        elif d.exists():
-            info = review_process_info(d)
-            rows.append({
-                "pr": n, "title": p.get("title", ""),
-                "draft": bool(p.get("draft")),
-                "status": "reviewing", "rounds": None,
-                "pid": info["pid"] if info else None,
-                "started_at": info["started_at"] if info else None,
-                "bugs": None, "doc_errors": None,
-                "unavailable": unavailable,
-            })
-        else:
-            rows.append({
-                "pr": n, "title": p.get("title", ""),
-                "draft": bool(p.get("draft")),
-                "status": "not_reviewed", "rounds": None,
-                "bugs": None, "doc_errors": None,
-                "unavailable": unavailable,
-            })
+        rows.append(pr_status_row(session_root, owner, repo, n,
+                                  title=p.get("title", ""),
+                                  draft=bool(p.get("draft")),
+                                  unavailable=unavailable))
 
     if unavailable:
         # gh lỗi → fallback: PR đã review từ sessions
@@ -321,6 +384,27 @@ def open_prs(session_root: Path, owner: str, repo: str, gh=None) -> list[dict]:
 
     rows.sort(key=lambda r: r["pr"], reverse=True)
     return rows
+
+
+def account_projects(session_root: Path, gh=None) -> dict:
+    """Every repo the authenticated GitHub account reaches, PRs merged with sessions.
+
+    The GitHub half is one GraphQL call (`github_projects`); this adds the
+    review state already on disk, so the account page can show what has been
+    reviewed without a request per pull request.
+    """
+    import github_projects
+
+    data = github_projects.account_repos(gh=gh)
+    for record in data["repos"]:
+        owner, repo = record["owner"], record["repo"]
+        record["prs"] = [
+            {**pr, **pr_status_row(session_root, owner, repo, pr["pr"],
+                                   title=pr["title"], draft=pr["draft"])}
+            for pr in record["prs"]]
+        record["reviewed_count"] = sum(1 for pr in record["prs"]
+                                       if pr["status"] == "reviewed")
+    return data
 
 
 def review_process_info(session_dir: Path) -> dict | None:

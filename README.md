@@ -193,20 +193,58 @@ This workstream never changes a ticket's status, fields or description.
 PRS_SESSION_ROOT=sessions python -m web.server     # http://127.0.0.1:6789
 ```
 
-A read-only ledger over `sessions/` — no database. Repo list → repo detail
-(KPIs, merge-decision band, open PRs) → PR detail, which opens on the review
-pipeline as a graph: Snapshot → Describe → Claims → Verify → Score → Confirm →
-Report, with the doc-fix branch off Verify and the reply loop back into it. Each
-node carries its own status, cost and headline counts; clicking one opens that
-phase's evidence below. Blocking findings are listed above the tabs, widest blast
-radius first. Reviews started from the dashboard run in the background and the
-graph follows them live.
-A provider panel shows which gateway is active, whether its key is present, and
-can switch providers (the switch rewrites the one `provider:` line in
-`prsentinel.yml` — tokens never enter the file).
+Everything is read from `sessions/` — no database. The home page is the repo
+manager: cards with KPIs and the merge-decision band, inline add/remove and
+auto/manual switching, search and sort. A repo opens as a **PR queue** —
+Running / Blocked / Warned / Passed / Not reviewed / Drafts — that polls only
+while a review runs.
+
+A PR opens as a **review workspace**: findings on the left in blast-radius
+order (contracts → callers → claims → impact → docs → tests), the diff in the
+middle with each finding's card anchored to the line it cites (PoC failing
+tests and doc fixes attach to their findings with copy buttons), and tabs on
+the right — Overview, the pipeline graph, the rendered report, and the live
+run log with per-phase cost and the agent's tool-call trace. Evidence chips
+are clickable: a ref inside the diff jumps to it; a ref outside the diff peeks
+at the workspace clone. Deep links (`?finding=`) and keyboard review
+(`j`/`k` next/prev finding, `v` mark file viewed, `Esc` clear) round it out.
+Four read-only endpoints feed this (`…/files`, `…/file`, `…/extras`,
+`…/trace`), all derived from the session directory on demand.
+
+The dashboard speaks English and natural, meaning-based Vietnamese (glossary
+pinned in `web/ui/src/strings.ts`); the review-output language is a separate
+per-config setting. A provider panel shows which gateway is active, whether
+its key is present, and can switch providers (the switch rewrites the one
+`provider:` line in `prsentinel.yml` — tokens never enter the file).
 
 Demo data ships in `sessions/demo/app/` — open
 `http://127.0.0.1:6789/repos/demo/app/pr/8` for a blocked review.
+
+### Connecting a GitHub account
+
+The **GitHub** page turns a personal access token into a browsable list of work:
+paste one, and every project that account reaches — its own, the ones it was
+added to, and its organisations' — is fetched with their open pull requests, each
+row showing whether it has already been reviewed. Review or watch one from there;
+nothing has to be typed into `prsentinel.yml` first.
+
+The token needs `repo` and `read:org`. It is verified against GitHub before being
+stored, then written to `.env` — never to `prsentinel.yml`, and never sent back to
+the page. More than one account can be connected; whichever is active is the one
+**every** GitHub call is made as — the REST and GraphQL calls through `gh`, and the
+`git clone` of the pull request itself, which is what lets a work account review a
+private repo the machine's own login cannot see. The credential reaches git as an
+HTTP header through `GIT_CONFIG_*`, so it is never in a command line and never
+written into the clone's `.git/config`. With no account connected, `gh` and `git`
+authenticate exactly as they did before.
+
+Switching account takes effect on the next GitHub call, including calls made by a
+review already running — so a review started as one account can finish as another.
+Switch between reviews, not during one.
+
+The dashboard has no login of its own and binds to `127.0.0.1` — it can already
+edit `prsentinel.yml` and start reviews, and now also holds a GitHub token
+(`.env`, mode `600`). Do not serve it on a public interface.
 
 ## Providers
 

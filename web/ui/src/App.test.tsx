@@ -11,7 +11,7 @@ const REPO = {
   avg_verification_score: 0.5, has_data: true,
   verdict_count: { ACCURATE: 0, PARTIAL: 1, MISLEADING: 1, NO_CLAIMS: 0 },
   gate_count: { pass: 0, warn: 1, fail: 1, unknown: 0 },
-  prs: [], open_prs: [], open_questions: 1,
+  prs: [], open_prs: [], open_questions: 1, mode: 'auto',
 }
 
 // A repo detail fixture with an open PR, used only by the Vietnamese
@@ -59,6 +59,19 @@ const PR = {
   usage: [], replies: [],
 }
 
+// Snapshot slice for the workspace's diff pane. The pricing patch's hunk
+// covers new-side lines 72-75, so the claim evidence at :74 anchors inline.
+const PR_FILES = {
+  files: [
+    { filename: 'src/checkout/pricing.py', status: 'modified', additions: 3, deletions: 0,
+      patch: '@@ -70,3 +72,4 @@\n def price_for(cart):\n     key = _cache_key(cart)\n+    total = _apply_discounts(cart)\n+    return total' },
+    { filename: 'db/migrations/0042.sql', status: 'added', additions: 1, deletions: 0,
+      patch: '@@ -0,0 +1,1 @@\n+DROP TABLE price_history;' },
+  ],
+  pruned: [], commits: [], threads: [], base_sha: 'b1', head_sha: 'h1',
+}
+const PR_EXTRAS = { ticket: null, poc: null, patches: null, neutralized: null, description: null }
+
 // Config route fixture, used only by the Vietnamese Config test below: no
 // other test in this file navigates to /config.
 const CONFIG = {
@@ -86,13 +99,44 @@ const CONFIG = {
   config_path: '/etc/prsentinel.yml',
 }
 
+// The /github route: one connected account and one repo with two open PRs, one
+// of which already has a review on disk.
+const GITHUB_ACCOUNTS = {
+  accounts: [{ login: 'nv-minh', active: true, token_present: true }],
+  active: 'nv-minh',
+  gh_available: true,
+}
+
+const GITHUB_REPOS = {
+  login: 'nv-minh',
+  truncated: false,
+  repos: [{
+    owner: 'demo', repo: 'app', private: false, pushed_at: '2026-08-18T00:00:00Z',
+    open_pr_count: 2, reviewed_count: 1, truncated: false,
+    prs: [
+      { pr: 9, title: 'Add caching', draft: false, status: 'reviewed' as const,
+        rounds: 2, bugs: 3, doc_errors: 1, unavailable: false,
+        updated_at: '2026-08-18T00:00:00Z', author: 'dev1' },
+      { pr: 10, title: 'Tidy imports', draft: true, status: 'not_reviewed' as const,
+        rounds: null, bugs: null, doc_errors: null, unavailable: false,
+        updated_at: '2026-08-17T00:00:00Z', author: 'dev2' },
+    ],
+  }],
+}
+
 function mockFetch() {
   return vi.fn(async (input: RequestInfo | URL) => {
     const url = String(input)
     const body =
       url === '/api/repos' ? { repos: [REPO] }
       : url === '/api/config' ? CONFIG
+      : url === '/api/github/accounts' ? GITHUB_ACCOUNTS
+      : url === '/api/github/repos' ? GITHUB_REPOS
       : url.includes('/review/status') ? { running: false, stale: false }
+      : url.endsWith('/pr/8/files') ? PR_FILES
+      : url.endsWith('/pr/8/extras') ? PR_EXTRAS
+      : url.endsWith('/pr/8/trace') ? []
+      : url.endsWith('/pr/8/graph') ? {}
       : url.endsWith('/pr/8') ? PR
       : url.endsWith('/demo/app') ? REPO
       : {}
@@ -133,6 +177,8 @@ async function render(path: string) {
     root = createRoot(container)
     root.render(<App />)
   })
+  await vi.dynamicImportSettled() // lazy chunks: PipelineGraph, DiffPane
+  await act(async () => { await Promise.resolve() })
   await act(async () => { await Promise.resolve() })
 }
 
@@ -141,6 +187,9 @@ beforeEach(() => {
   ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
   vi.stubGlobal('fetch', mockFetch())
   vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener() {}, removeEventListener() {} }))
+  if (!Element.prototype.scrollIntoView) {
+    Element.prototype.scrollIntoView = () => {}
+  }
 })
 
 afterEach(() => {
@@ -155,11 +204,13 @@ afterEach(() => {
 afterEach(() => act(() => setLang('en')))
 
 describe('App', () => {
-  it('renders the repo ledger', async () => {
+  it('renders the repo card grid with a link and a mode badge', async () => {
     await render('/')
-    expect(container.textContent).toContain('demo/app')
+    const link = container.querySelector('a[href="/repos/demo/app"]')
+    expect(link?.textContent).toContain('demo/app')
     expect(container.textContent).toContain('6 bugs')
     expect(container.textContent).toContain('50% verified')
+    expect(container.textContent).toContain('auto') // the literal YAML mode
   })
 
   it('renders the gate band with a legend on the repo page', async () => {
@@ -174,14 +225,20 @@ describe('App', () => {
     expect(container.textContent).toContain('Speed up checkout')
     expect(container.textContent).toContain('No behaviour change')
     expect(container.textContent).toContain('src/checkout/pricing.py:74')
+    // gate reasons sit behind the header toggle now
+    const toggle = Array.from(container.querySelectorAll('button'))
+      .find((b) => b.textContent?.startsWith('Show reasons')) as HTMLButtonElement
+    await act(async () => { toggle.click() })
     expect(container.textContent).toContain('verification score 33% below 80%')
   })
 
-  it('switches to the contracts tab', async () => {
+  it('selects a contract finding from the nav', async () => {
     await render('/repos/demo/app/pr/8')
-    const tabs = Array.from(container.querySelectorAll('.tab')) as HTMLButtonElement[]
-    const contracts = tabs.find((t) => t.textContent?.startsWith('Contracts'))!
-    await act(async () => { contracts.click() })
+    const item = Array.from(
+      container.querySelectorAll('[data-nav-family="contract"] button'),
+    ).find((b) => b.textContent?.includes('0042.sql')) as HTMLButtonElement
+    await act(async () => { item.click() })
+    expect(window.location.search).toContain('finding=contract-0')
     expect(container.textContent).toContain('db/migrations/0042.sql')
     expect(container.textContent).toContain('SCHEMA_MIGRATION_RISK')
   })
@@ -192,10 +249,11 @@ describe('App', () => {
 
     clickLangToggle()
 
-    expect(container.textContent).toContain('Kho mã đã review')
     expect(container.textContent).toContain('6 lỗi') // repos.bugs, interpolated
     expect(container.textContent).toContain('50% đã xác minh') // repos.verified, interpolated
-    expect(container.textContent).not.toContain('Reviewed repositories')
+    // config.modeAria, interpolated with the repo name — the mode control
+    // lives on the repo card now that Config lost its repo table.
+    expect(container.querySelector('[aria-label="Chế độ cho demo/app"]')).toBeTruthy()
     expect(container.textContent).not.toContain('6 bugs')
 
     // Switch back inside the test: `lang` is module-level (see i18n.ts), so
@@ -229,38 +287,81 @@ describe('App', () => {
     clickLangToggle()
 
     expect(container.textContent).toContain('Chặn merge (3)') // pr.blockingHeading, interpolated
-    expect(container.textContent).toContain('Cổng merge') // pr.tileGate
+    // pr.tileGate is the loanword 'Gate' now — assert a VI-only string instead
+    expect(container.textContent).toContain('Xem lý do') // ws.reasonsToggle
     expect(container.textContent).not.toContain('Blocking (3)')
 
     clickLangToggle()
     expect(container.textContent).toContain('Blocking (3)')
   })
 
-  it('renders the config page in Vietnamese, with a repo name landing inside the mode select aria-label', async () => {
+  it('renders the config page in Vietnamese', async () => {
     await render('/config')
     expect(container.textContent).toContain('What the poller watches')
     expect(container.textContent).toContain('Model provider')
-    expect(container.querySelector('[aria-label="Mode for demo/app"]')).toBeTruthy()
 
     clickLangToggle()
 
-    expect(container.textContent).toContain('Bộ quét đang theo dõi những gì')
+    expect(container.textContent).toContain('PR Sentinel đang theo dõi những gì')
     expect(container.textContent).toContain('Nhà cung cấp model')
-    // config.modeAria, interpolated with the repo name
-    expect(container.querySelector('[aria-label="Chế độ cho demo/app"]')).toBeTruthy()
     expect(container.textContent).not.toContain('What the poller watches')
 
     clickLangToggle()
     expect(container.textContent).toContain('What the poller watches')
-    expect(container.querySelector('[aria-label="Mode for demo/app"]')).toBeTruthy()
   })
 
-  it('switches to the cross-PR tab', async () => {
+  it('fetches the account projects as soon as the page loads', async () => {
+    await render('/github')
+    // No click needed: an account is connected, so its repos are already here.
+    expect(container.textContent).toContain('nv-minh')
+    expect(container.textContent).toContain('demo/app')
+    expect(container.textContent).toContain('2 open')
+    expect(container.textContent).toContain('1 reviewed')
+  })
+
+  it('keeps the token field masked and never renders a token back', async () => {
+    await render('/github')
+    const field = container.querySelector(
+      '[aria-label="GitHub personal access token"]') as HTMLInputElement
+    expect(field.type).toBe('password')
+    expect(field.value).toBe('')
+  })
+
+  it('expands a repo to its open pull requests', async () => {
+    await render('/github')
+    expect(container.textContent).not.toContain('Add caching')
+
+    const row = Array.from(container.querySelectorAll('.row'))
+      .find((r) => r.textContent?.includes('demo/app')) as HTMLElement
+    await act(async () => { row.click() })
+
+    expect(container.textContent).toContain('#9')
+    expect(container.textContent).toContain('Add caching')
+    expect(container.textContent).toContain('#10')
+    expect(container.textContent).toContain('Tidy imports')
+  })
+
+  it('renders the account page in Vietnamese', async () => {
+    await render('/github')
+    expect(container.textContent).toContain('Connect an account')
+
+    clickLangToggle()
+
+    expect(container.textContent).toContain('Kết nối tài khoản')
+    expect(container.textContent).toContain('2 đang mở') // accounts.repoOpen
+    expect(container.textContent).not.toContain('Connect an account')
+
+    clickLangToggle()
+    expect(container.textContent).toContain('Connect an account')
+  })
+
+  it('selects a cross-PR finding from the nav', async () => {
     await render('/repos/demo/app/pr/8')
-    const tabs = Array.from(container.querySelectorAll('.tab')) as HTMLButtonElement[]
-    const crosspr = tabs.find((t) => t.textContent?.startsWith('Cross-PR'))!
-    await act(async () => { crosspr.click() })
+    const item = Array.from(
+      container.querySelectorAll('[data-nav-family="crosspr"] button'),
+    ).find((b) => b.textContent?.includes('#456')) as HTMLButtonElement
+    await act(async () => { item.click() })
     expect(container.textContent).toContain('createInvoice')
-    expect(container.textContent).toContain('#456')
+    expect(container.textContent).toContain('renames a symbol this PR calls')
   })
 })

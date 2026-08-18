@@ -63,6 +63,76 @@ export interface Claim {
   status: string
   evidence: string[]
   note: string
+  confidence?: number | null
+}
+
+export interface SnapshotFile {
+  filename: string
+  status: string
+  additions: number
+  deletions: number
+  patch: string
+}
+
+export interface SnapshotThread {
+  path: string | null
+  line: number | null
+  author: string
+  body: string
+  resolved: boolean
+  outdated: boolean
+}
+
+export interface PrFiles {
+  files: SnapshotFile[]
+  pruned: { filename: string; reason: string; dropped: boolean }[]
+  commits: { sha: string; message: string }[]
+  threads: SnapshotThread[]
+  base_sha: string
+  head_sha: string
+}
+
+export interface FileSlice {
+  path: string
+  start: number
+  end: number
+  total_lines: number
+  lines: string[]
+}
+
+export interface PocTest {
+  target: string
+  framework: string
+  test_code: string
+  why_it_fails: string
+}
+
+export interface DocPatch {
+  path: string
+  old_snippet: string
+  new_snippet: string
+  line_hint: number
+  why: string
+}
+
+export interface PrExtras {
+  ticket: { primary?: string; tickets?: Record<string, unknown>[]; skipped?: string } | null
+  poc: PocTest[] | null
+  patches: DocPatch[] | null
+  neutralized: { phase: string; items: string[] }[] | null
+  description: { description?: string; summary?: string } | null
+}
+
+export interface TraceEvent {
+  type: 'tool' | 'text'
+  tool?: string
+  summary: string
+}
+
+export interface TracePhase {
+  phase: string
+  session_id: string
+  events: TraceEvent[]
 }
 
 export interface PrDetail {
@@ -117,8 +187,34 @@ export interface PrDetail {
     reasons?: string[]
     labels?: string[]
   }
-  usage?: { phase: string; cost_usd: number | null; num_turns: number; model: string }[]
+  usage?: { phase: string; session_id?: string; cost_usd: number | null
+            num_turns: number; duration_ms?: number | null; model: string }[]
   replies?: { author: string; body: string; created_at: string; source: string }[]
+}
+
+export interface GithubAccount {
+  login: string
+  active: boolean
+  token_present: boolean
+}
+
+/** An open PR as GitHub reports it, merged with what `sessions/` already holds —
+ *  the server returns `OpenPr`'s fields plus the GitHub-only ones. */
+export interface GithubPr extends OpenPr {
+  updated_at: string
+  author: string
+}
+
+export interface GithubRepo {
+  owner: string
+  repo: string
+  private: boolean
+  pushed_at: string
+  open_pr_count: number
+  reviewed_count: number
+  /** true when the repo has more open PRs than one page of the query returns */
+  truncated: boolean
+  prs: GithubPr[]
 }
 
 export interface ProviderInfo {
@@ -184,16 +280,29 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
-  repos: () => request<{ repos: RepoRecord[] }>('/api/repos'),
-  repo: (owner: string, repo: string) =>
-    request<RepoRecord>(`/api/repos/${owner}/${repo}`),
-  pr: (owner: string, repo: string, pr: number) =>
-    request<PrDetail>(`/api/repos/${owner}/${repo}/pr/${pr}`),
-  report: (owner: string, repo: string, pr: number) =>
-    request<{ markdown: string }>(`/api/repos/${owner}/${repo}/pr/${pr}/report`),
-  graph: (owner: string, repo: string, pr: number) =>
-    request<Pipeline>(`/api/repos/${owner}/${repo}/pr/${pr}/graph`),
-  config: () => request<any>('/api/config'),
+  repos: (signal?: AbortSignal) =>
+    request<{ repos: RepoRecord[] }>('/api/repos', { signal }),
+  repo: (owner: string, repo: string, signal?: AbortSignal) =>
+    request<RepoRecord>(`/api/repos/${owner}/${repo}`, { signal }),
+  pr: (owner: string, repo: string, pr: number, signal?: AbortSignal) =>
+    request<PrDetail>(`/api/repos/${owner}/${repo}/pr/${pr}`, { signal }),
+  report: (owner: string, repo: string, pr: number, signal?: AbortSignal) =>
+    request<{ markdown: string }>(`/api/repos/${owner}/${repo}/pr/${pr}/report`, { signal }),
+  graph: (owner: string, repo: string, pr: number, signal?: AbortSignal) =>
+    request<Pipeline>(`/api/repos/${owner}/${repo}/pr/${pr}/graph`, { signal }),
+  prFiles: (owner: string, repo: string, pr: number, signal?: AbortSignal) =>
+    request<PrFiles>(`/api/repos/${owner}/${repo}/pr/${pr}/files`, { signal }),
+  prFile: (owner: string, repo: string, pr: number, path: string,
+           start: number, end: number, signal?: AbortSignal) =>
+    request<FileSlice>(
+      `/api/repos/${owner}/${repo}/pr/${pr}/file?path=${encodeURIComponent(path)}&start=${start}&end=${end}`,
+      { signal },
+    ),
+  prExtras: (owner: string, repo: string, pr: number, signal?: AbortSignal) =>
+    request<PrExtras>(`/api/repos/${owner}/${repo}/pr/${pr}/extras`, { signal }),
+  prTrace: (owner: string, repo: string, pr: number, signal?: AbortSignal) =>
+    request<TracePhase[]>(`/api/repos/${owner}/${repo}/pr/${pr}/trace`, { signal }),
+  config: (signal?: AbortSignal) => request<any>('/api/config', { signal }),
   setProvider: (name: string) =>
     request<any>('/api/config/provider', {
       method: 'POST',
@@ -216,14 +325,36 @@ export const api = {
     }),
   removeRepo: (repo: string) =>
     request<any>(`/api/config/repos/${encodeURIComponent(repo)}`, { method: 'DELETE' }),
+  githubAccounts: () =>
+    request<{ accounts: GithubAccount[]; active: string; gh_available: boolean }>(
+      '/api/github/accounts',
+    ),
+  addGithubAccount: (token: string) =>
+    request<{ login: string }>('/api/github/accounts', {
+      method: 'POST',
+      body: JSON.stringify({ token }),
+    }),
+  setActiveGithubAccount: (login: string) =>
+    request<any>(`/api/github/accounts/${encodeURIComponent(login)}/active`, {
+      method: 'POST',
+    }),
+  removeGithubAccount: (login: string) =>
+    request<any>(`/api/github/accounts/${encodeURIComponent(login)}`, {
+      method: 'DELETE',
+    }),
+  githubRepos: () =>
+    request<{ login: string; repos: GithubRepo[]; truncated: boolean }>(
+      '/api/github/repos',
+    ),
   startReview: (owner: string, repo: string, pr: number, reply = false) =>
     request<any>(`/api/repos/${owner}/${repo}/pr/${pr}/review?reply=${reply}`, {
       method: 'POST',
     }),
-  reviewStatus: (owner: string, repo: string, pr: number) =>
-    request<ReviewStatus>(`/api/repos/${owner}/${repo}/pr/${pr}/review/status`),
-  reviewLog: (owner: string, repo: string, pr: number) =>
+  reviewStatus: (owner: string, repo: string, pr: number, signal?: AbortSignal) =>
+    request<ReviewStatus>(`/api/repos/${owner}/${repo}/pr/${pr}/review/status`, { signal }),
+  reviewLog: (owner: string, repo: string, pr: number, signal?: AbortSignal) =>
     request<{ log: string; running: boolean }>(
       `/api/repos/${owner}/${repo}/pr/${pr}/review/log`,
+      { signal },
     ),
 }
