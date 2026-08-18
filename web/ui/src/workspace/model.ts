@@ -91,11 +91,13 @@ export function collectFindings(d: PrDetail, threads?: SnapshotThread[]): Findin
   }
   for (const tst of d.tests ?? []) {
     const filePart = (tst.target ?? '').split(':')[0]
-    const wheres = (tst.uncovered_edge_cases ?? [])
-      .map((e: { where?: string }) => e.where ?? '').filter(Boolean)
+    const cases = tst.uncovered_edge_cases ?? []
+    const wheres = cases.map((e: { where?: string }) => e.where ?? '').filter(Boolean)
     push('test', {
       status: tst.assertion_quality, blocking: tst.assertion_quality === 'MISSING',
-      title: tst.target, detail: tst.note ?? '',
+      title: tst.target,
+      detail: [tst.note ?? '', ...cases.map((e) => `${e.case} → ${e.where}`)]
+        .filter(Boolean).join('\n'),
       evidence: [tst.target, ...wheres].filter(Boolean).map(parseEvidenceRef),
       anchor: fileAnchor(filePart),
     })

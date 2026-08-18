@@ -40,7 +40,9 @@ const DETAIL = {
                 detail: 'no down migration' }],
   cross_pr: [],
   tests: [{ target: 'tests/test_pricing.py:test_price_for', assertion_quality: 'MISSING',
-            uncovered_edge_cases: [], note: 'no cache test' }],
+            uncovered_edge_cases: [
+              { case: 'a discount applied inside the TTL', where: 'tests/test_pricing.py:test_price_for' },
+            ], note: 'no cache test' }],
   threads: [{ text: 'Does this handle a reused discount code?', status: 'STILL_VALID', note: '' }],
 } as unknown as PrDetail
 
@@ -69,6 +71,12 @@ describe('collectFindings', () => {
     expect(blocking).toContain('doc:docs/checkout.md')
     expect(blocking).toContain('test:tests/test_pricing.py:test_price_for')
     expect(blocking).not.toContain('claim:Covered by tests')
+  })
+
+  it('keeps uncovered edge cases in the test finding detail', () => {
+    const test = collectFindings(DETAIL, THREADS).find((f) => f.family === 'test')!
+    expect(test.detail).toContain('no cache test')
+    expect(test.detail).toContain('a discount applied inside the TTL')
   })
 
   it('anchors a thread finding through the matching snapshot thread', () => {

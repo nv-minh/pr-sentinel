@@ -49,7 +49,7 @@ export function FindingCard({ finding, selected, renderChips, children }: {
         )}
       </div>
       {finding.detail && (
-        <p className="mt-1.5 max-w-[72ch] text-[13px] leading-relaxed text-ink-muted">
+        <p className="mt-1.5 max-w-[72ch] whitespace-pre-line text-[13px] leading-relaxed text-ink-muted">
           {finding.detail}
         </p>
       )}
