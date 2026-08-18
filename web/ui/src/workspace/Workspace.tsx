@@ -5,6 +5,7 @@ import type { ReviewStatus } from '../api'
 import { ErrorNotice, Loading, Notice, PageSub, PageTitle } from '../components'
 import { useApi, usePoll } from '../hooks/useApi'
 import { useT } from '../i18n'
+import { EvidenceChip } from './EvidenceChip'
 import { FindingCard } from './FindingCard'
 import { Header } from './Header'
 import { NavPane } from './NavPane'
@@ -160,14 +161,17 @@ export function Workspace({ owner, repo, pr }: { owner: string; repo: string; pr
     ? 'min-[980px]:grid-cols-[270px_minmax(0,1fr)_370px]'
     : 'min-[980px]:grid-cols-[minmax(0,1fr)_370px]'
 
+  const diffPaths = new Set(fileList.map((f) => f.filename))
+  const jump = (path: string, _line: number) => {
+    state.select({ file: path, finding: null })
+    document.getElementById(fileSlug(path))?.scrollIntoView({ block: 'start' })
+  }
   const renderChips = (f: Finding) => (
     f.evidence.length === 0
       ? <span className="font-mono text-[11px] text-ink-muted">{t('citations.none')}</span>
       : f.evidence.map((e, i) => (
-          <span key={i}
-                className="inline-block rounded-sm border border-hairline-strong px-[5px] py-px font-mono text-[11.5px]">
-            {e.raw}
-          </span>
+          <EvidenceChip key={i} item={e} inDiff={(p) => diffPaths.has(p)}
+                        owner={owner} repo={repo} pr={pr} onJump={jump} />
         ))
   )
 

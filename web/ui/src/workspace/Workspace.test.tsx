@@ -19,7 +19,8 @@ const PR = {
              evidence: ['src/checkout/pricing.py:74'], note: 'discounts bypass the cache' }],
   docs: [], impact: [],
   callers: [{ symbol: 'price_for(cart)', defined_at: 'src/checkout/pricing.py:41',
-              callers: ['src/api/checkout.py:120'], risk: 'BROKEN', note: 'cached' }],
+              callers: ['src/api/checkout.py:120', 'src/admin/quotes.py:57'],
+              risk: 'BROKEN', note: 'cached' }],
   contracts: [{ kind: 'SCHEMA', path: 'db/migrations/0042.sql',
                 status: 'SCHEMA_MIGRATION_RISK', detail: 'destructive drop' }],
   cross_pr: [], siblings: { scanned: 0, truncated: false, skipped: '', siblings: [] },
@@ -59,6 +60,16 @@ function stubFetch(overrides: Record<string, unknown> = {}) {
   vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
     const url = String(input)
     calls.push(url)
+    if (url.includes('/pr/8/file?')) {
+      if (url.includes('quotes.py')) {
+        return { ok: true, json: async () => ({
+          path: 'src/admin/quotes.py', start: 49, end: 69, total_lines: 90,
+          lines: ['def quote_total(cart):', '    return price_for(cart)'],
+        }) } as Response
+      }
+      return { ok: false, status: 404, statusText: 'Not Found',
+               json: async () => ({ detail: 'workspace or file not available' }) } as Response
+    }
     const body =
       url.includes('/review/status') ? statusBody
       : url.includes('/review/log') ? { log: 'phase: verify', running: statusBody.running }
@@ -144,6 +155,38 @@ it('falls back to raw patch text when hunk headers cannot be parsed', async () =
   const pre = el.querySelector('#file-src-checkout-pricing-py pre') as HTMLElement
   expect(pre.textContent).toContain('+CACHE_TTL = 300')
   expect(el.textContent).toContain('hunk headers could not be parsed')
+})
+
+it('peeks workspace code from a chip pointing outside the diff', async () => {
+  stubFetch()
+  const el = await mount(<App />)
+  // the caller card cites src/api/checkout.py:120 — not a changed file
+  const chip = Array.from(el.querySelectorAll('#finding-caller-0 button'))
+    .find((b) => b.textContent?.includes('src/api/checkout.py:120')) as HTMLButtonElement
+  expect(chip).toBeTruthy()
+  await act(async () => { chip.click() })
+  await flush()
+  // the demo mock has no workspace → graceful unavailable state
+  expect(el.textContent).toContain('open on GitHub instead')
+})
+
+it('shows fetched source lines in the peek when the workspace has the file', async () => {
+  stubFetch()
+  const el = await mount(<App />)
+  const chip = Array.from(el.querySelectorAll('#finding-caller-0 button'))
+    .find((b) => b.textContent?.includes('src/admin/quotes.py:57')) as HTMLButtonElement
+  await act(async () => { chip.click() })
+  await flush()
+  expect(el.textContent).toContain('def quote_total')
+})
+
+it('navigates to the file when a chip points inside the diff', async () => {
+  stubFetch()
+  const el = await mount(<App />)
+  const chip = Array.from(el.querySelectorAll('#finding-caller-0 button'))
+    .find((b) => b.textContent?.includes('src/checkout/pricing.py:41')) as HTMLButtonElement
+  await act(async () => { chip.click() })
+  expect(window.location.search).toContain('file=src%2Fcheckout%2Fpricing.py')
 })
 
 it('polls status only while a review runs and stops when it ends', async () => {

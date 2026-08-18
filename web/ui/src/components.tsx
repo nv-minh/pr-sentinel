@@ -169,21 +169,6 @@ export function Row({
   )
 }
 
-export function Citations({ items }: { items: string[] }) {
-  const t = useT()
-  if (!items?.length) return <span>{t('citations.none')}</span>
-  return (
-    <>
-      {items.map((item, i) => (
-        <span className="mr-[5px] inline-block rounded-sm border border-hairline-strong px-[5px] py-px font-mono text-[11.5px] text-ink"
-              key={`${item}-${i}`}>
-          {item}
-        </span>
-      ))}
-    </>
-  )
-}
-
 export function Empty({ children }: { children: ReactNode }) {
   return (
     <div className="border-b border-hairline px-0.5 py-[18px] text-sm text-ink-muted">
