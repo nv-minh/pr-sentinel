@@ -16,7 +16,7 @@
 - **English values are frozen strings.** Existing tests assert them verbatim (`App.test.tsx`, `components.test.tsx`, `PipelineGraph.test.tsx`). When you move a string into `strings.ts`, the English value must be byte-identical to what the component renders today, including trailing spaces and the `…` ellipsis character. Changing English copy is out of scope.
 - **The status vocabulary is never translated.** `PASS`, `FAIL`, `PARTIAL`, `UNVERIFIED`, `MATCH`, `STALE`, `WRONG`, `FABRICATED`, `CHANGED`, `BROKEN`, `UNAFFECTED`, `RISK`, `SAFE`, `NEEDS_UPDATE`, `COMPATIBLE`, `BREAKING_API_CHANGE`, `SCHEMA_MIGRATION_RISK`, `STRONG`, `WEAK`, `MISSING`, `RESOLVED`, `STILL_VALID`, `FIXED`, `OUTDATED`, `ACCURATE`, `MISLEADING`, `NO_CLAIMS` render as-is in both languages. `StatusWord`'s `'UNKNOWN'` fallback is part of that vocabulary — leave it alone.
 - **`status.ts` stays language-free.** It is a pure data module; no component of it may import from `i18n.ts` or `strings.ts`.
-- **Dictionary type contract:** `const vi: Record<keyof typeof en, string>` — never `typeof en`, which would infer literal types and demand identical values.
+- **Dictionary type contract:** `const vi: Record<keyof typeof en, string>`, so a **missing** Vietnamese key is a `tsc -b` error (and `npm run build` runs `tsc -b` first). Do not add a comment claiming `typeof en` would "infer literal types and demand identical values" — that is false, disproved during implementation with a standalone `tsc --strict` run: `en` is declared without `as const`, so `typeof en` widens to `string` and both spellings reject a missing key equally.
 - **`/api/*` response shapes are additive only.** The only change is one new key (`language`) on `GET /api/config` and one new endpoint. CI reads this JSON.
 - **Config writes preserve comments.** Any new `prsentinel.yml` writer edits the raw text line, following `set_provider` (`src/autoreview_config.py:166-184`). Never `yaml.safe_dump` a whole config back.
 - **Python style:** 4-space indent, ≤ 88 columns, tests named `test_<behaviour_in_a_sentence>`.
@@ -179,9 +179,6 @@ Create `web/ui/src/strings.ts`. This task seeds it with the header keys plus the
 /* The interface dictionary. English is the source of truth for the key set:
    `vi` is typed as Record<keyof typeof en, string>, so a key added here and
    forgotten there is a `tsc -b` error, and `npm run build` runs tsc first.
-
-   Deliberately NOT typed as `typeof en` — that would infer literal types and
-   demand the Vietnamese values be identical to the English ones.
 
    Status vocabulary (PASS, STALE, BREAKING_API_CHANGE …) is absent on purpose:
    those are enum values from the findings schema, they appear verbatim in the

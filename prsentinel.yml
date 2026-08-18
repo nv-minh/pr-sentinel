@@ -7,7 +7,8 @@ skip_human: true
 drafts: false
 skip_bots: true
 # The language the model writes its output in — notes, unresolved questions,
-# drafted descriptions, PoC reasons. Fixed labels stay English. en | vi
+# drafted descriptions, PoC reasons, follow-up replies and the reason attached
+# to a documentation fix. Fixed labels stay English. en | vi
 language: en
 # Where LLM calls go. Built in:
 #   anthropic (default) -> api.anthropic.com                -> ANTHROPIC_API_KEY

@@ -199,6 +199,11 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ name }),
     }),
+  setLanguage: (language: string) =>
+    request<any>('/api/config/language', {
+      method: 'POST',
+      body: JSON.stringify({ language }),
+    }),
   setMode: (repo: string, mode: string) =>
     request<any>(`/api/config/repos/${encodeURIComponent(repo)}/mode`, {
       method: 'POST',

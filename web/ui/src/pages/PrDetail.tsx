@@ -7,7 +7,9 @@ import {
   StatusWord, Tile, Tiles,
 } from '../components'
 import { NODE_TAB } from '../graph/layout'
-import { GATE_WORD, formatCost, formatScore } from '../status'
+import { useT } from '../i18n'
+import { formatCost, formatScore } from '../status'
+import type { Key } from '../strings'
 
 // React Flow is ~100 kB gzipped and only this route needs it.
 const PipelineGraph = lazy(() => import('../graph/PipelineGraph'))
@@ -16,17 +18,17 @@ type TabKey =
   | 'claims' | 'docs' | 'impact' | 'callers' | 'contracts' | 'crosspr' | 'tests'
   | 'threads' | 'confirm' | 'context'
 
-const TABS: { key: TabKey; label: string }[] = [
-  { key: 'claims', label: 'Claims' },
-  { key: 'docs', label: 'Docs' },
-  { key: 'impact', label: 'Impact' },
-  { key: 'callers', label: 'Callers' },
-  { key: 'contracts', label: 'Contracts' },
-  { key: 'crosspr', label: 'Cross-PR' },
-  { key: 'tests', label: 'Tests' },
-  { key: 'threads', label: 'Threads' },
-  { key: 'confirm', label: 'Confirm' },
-  { key: 'context', label: 'Context' },
+const TABS: { key: TabKey; label: Key }[] = [
+  { key: 'claims', label: 'pr.tabClaims' },
+  { key: 'docs', label: 'pr.tabDocs' },
+  { key: 'impact', label: 'pr.tabImpact' },
+  { key: 'callers', label: 'pr.tabCallers' },
+  { key: 'contracts', label: 'pr.tabContracts' },
+  { key: 'crosspr', label: 'pr.tabCrossPr' },
+  { key: 'tests', label: 'pr.tabTests' },
+  { key: 'threads', label: 'pr.tabThreads' },
+  { key: 'confirm', label: 'pr.tabConfirm' },
+  { key: 'context', label: 'pr.tabContext' },
 ]
 
 /** Every finding severe enough to block a merge. All seven blocking statuses
@@ -38,36 +40,37 @@ const TABS: { key: TabKey; label: string }[] = [
  *  risk should never be three clicks away. */
 const BLOCKING: {
   tab: TabKey
-  label: string
+  label: Key
   pick: (d: Detail) => { status: string; title: string; detail: string }[]
 }[] = [
-  { tab: 'contracts', label: 'Contract',
+  { tab: 'contracts', label: 'pr.blockContract',
     pick: (d) => (d.contracts ?? [])
       .filter((c) => c.status !== 'COMPATIBLE')
       .map((c) => ({ status: c.status, title: c.path, detail: c.detail })) },
-  { tab: 'callers', label: 'Caller',
+  { tab: 'callers', label: 'pr.blockCaller',
     pick: (d) => (d.callers ?? [])
       .filter((c) => c.risk === 'BROKEN')
       .map((c) => ({ status: c.risk, title: c.symbol, detail: c.note })) },
-  { tab: 'claims', label: 'Claim',
+  { tab: 'claims', label: 'pr.blockClaim',
     pick: (d) => (d.claims ?? [])
       .filter((c) => c.status === 'FAIL')
       .map((c) => ({ status: c.status, title: c.text || c.id, detail: c.note })) },
-  { tab: 'impact', label: 'Impact',
+  { tab: 'impact', label: 'pr.blockImpact',
     pick: (d) => (d.impact ?? [])
       .filter((i) => i.impact === 'BROKEN')
       .map((i) => ({ status: i.impact, title: i.requirement, detail: i.detail })) },
-  { tab: 'docs', label: 'Doc',
+  { tab: 'docs', label: 'pr.blockDoc',
     pick: (d) => (d.docs ?? [])
       .filter((x) => x.status === 'WRONG' || x.status === 'FABRICATED')
       .map((x) => ({ status: x.status, title: x.path, detail: x.what })) },
-  { tab: 'tests', label: 'Test',
+  { tab: 'tests', label: 'pr.blockTest',
     pick: (d) => (d.tests ?? [])
       .filter((t) => t.assertion_quality === 'MISSING')
       .map((t) => ({ status: t.assertion_quality, title: t.target, detail: t.note })) },
 ]
 
 export function PrDetail({ owner, repo, pr }: { owner: string; repo: string; pr: number }) {
+  const t = useT()
   const [data, setData] = useState<Detail | null>(null)
   const [status, setStatus] = useState<ReviewStatus | null>(null)
   const [log, setLog] = useState('')
@@ -123,7 +126,7 @@ export function PrDetail({ owner, repo, pr }: { owner: string; repo: string; pr:
   }
 
   if (error && !data) return <ErrorNotice message={error} />
-  if (!data) return <Loading label="Loading the PR" />
+  if (!data) return <Loading label={t('pr.loading')} />
 
   const rec = data.pr
   const score = data.score ?? {}
@@ -149,13 +152,13 @@ export function PrDetail({ owner, repo, pr }: { owner: string; repo: string; pr:
         <span className="font-mono text-ink-muted text-[0.7em]">
           #{pr}
         </span>{' '}
-        {data.title || rec?.title || '(no title)'}
+        {data.title || rec?.title || t('common.noTitle')}
       </PageTitle>
       <PageSub>
-        {owner}/{repo} · {rec?.author ? `by ${rec.author} · ` : ''}
+        {owner}/{repo} · {rec?.author ? `${t('pr.by', { author: rec.author })} · ` : ''}
         {rec?.base} ← {rec?.head} ·{' '}
         <a className="text-brand hover:underline" href={`https://github.com/${owner}/${repo}/pull/${pr}`}>
-          open on GitHub
+          {t('pr.openOnGitHub')}
         </a>
       </PageSub>
 
@@ -163,27 +166,27 @@ export function PrDetail({ owner, repo, pr }: { owner: string; repo: string; pr:
 
       {!data.reviewed ? (
         <>
-          <Notice>This pull request has not been reviewed yet.</Notice>
+          <Notice>{t('pr.notReviewed')}</Notice>
           <Button onClick={() => startReview(false)} disabled={status?.running}>
-            {status?.running ? 'Reviewing…' : 'Review now'}
+            {status?.running ? t('pr.reviewing') : t('pr.reviewNow')}
           </Button>
         </>
       ) : (
         <>
           <Tiles>
-            <Tile label="Gate" value={<StatusWord status={gate} />} note={GATE_WORD[gate]} />
-            <Tile label="Verified" value={formatScore(score.verification_score ?? rec?.verification_score)}
-                  note="claims with file:line" />
-            <Tile label="Verdict" value={<StatusWord status={rec?.verdict ?? ''} />}
-                  note="PR description vs code" />
-            <Tile label="Business risk" value={score.business_risk ?? '—'} />
-            <Tile label="Rounds" value={rec?.rounds ?? 1} />
-            <Tile label="Cost" value={formatCost(rec?.cost_usd)} />
+            <Tile label={t('pr.tileGate')} value={<StatusWord status={gate} />} note={t(`gate.${gate}` as Key)} />
+            <Tile label={t('pr.tileVerified')} value={formatScore(score.verification_score ?? rec?.verification_score)}
+                  note={t('pr.tileVerifiedNote')} />
+            <Tile label={t('pr.tileVerdict')} value={<StatusWord status={rec?.verdict ?? ''} />}
+                  note={t('pr.tileVerdictNote')} />
+            <Tile label={t('pr.tileRisk')} value={score.business_risk ?? '—'} />
+            <Tile label={t('pr.tileRounds')} value={rec?.rounds ?? 1} />
+            <Tile label={t('pr.tileCost')} value={formatCost(rec?.cost_usd)} />
           </Tiles>
 
-          <Eyebrow>Pipeline</Eyebrow>
+          <Eyebrow>{t('pr.pipelineHeading')}</Eyebrow>
           {pipeline?.nodes?.length ? (
-            <Suspense fallback={<Loading label="Loading the pipeline" />}>
+            <Suspense fallback={<Loading label={t('pr.pipelineLoading')} />}>
               <PipelineGraph
                 pipeline={pipeline}
                 selected={phase}
@@ -195,12 +198,12 @@ export function PrDetail({ owner, repo, pr }: { owner: string; repo: string; pr:
               />
             </Suspense>
           ) : (
-            <Notice>No pipeline data for this review yet.</Notice>
+            <Notice>{t('pr.noPipeline')}</Notice>
           )}
 
           {score.reasons && score.reasons.length > 0 && (
             <Notice tone={gate === 'fail' ? 'fail' : 'info'}>
-              Why this gate:
+              {t('pr.whyGate')}
               <ul className="mt-1.5 list-disc space-y-0.5 pl-5">
                 {score.reasons.map((r, i) => <li key={i}>{r}</li>)}
               </ul>
@@ -209,30 +212,30 @@ export function PrDetail({ owner, repo, pr }: { owner: string; repo: string; pr:
 
           <div className="flex flex-wrap items-center gap-3">
             <Button onClick={() => startReview(false)} disabled={status?.running}>
-              {status?.running ? 'Reviewing…' : 'Re-review'}
+              {status?.running ? t('pr.reviewing') : t('pr.reReview')}
             </Button>
             <Button variant="outline" onClick={() => startReview(true)} disabled={status?.running}>
-              Answer replies
+              {t('pr.answerReplies')}
             </Button>
             {status?.last?.exit !== undefined && !status.running && (
               <span className="font-mono text-xs text-ink-muted">
-                last run exit {status.last.exit} · {status.last.finished_at}
+                {t('pr.lastRun', { code: status.last.exit, at: status.last.finished_at ?? '' })}
               </span>
             )}
           </div>
 
           {status?.running && (
             <>
-              <Eyebrow>Review in progress</Eyebrow>
+              <Eyebrow>{t('pr.inProgressHeading')}</Eyebrow>
               <pre className="max-h-[260px] overflow-auto rounded border border-hairline bg-surface px-3.5 py-3 font-mono text-xs whitespace-pre-wrap text-ink-muted">
-                {log || 'starting…'}
+                {log || t('pr.starting')}
               </pre>
             </>
           )}
 
           {blocking.length > 0 && (
             <>
-              <Eyebrow>Blocking ({blocking.length})</Eyebrow>
+              <Eyebrow>{t('pr.blockingHeading', { n: blocking.length })}</Eyebrow>
               <Ledger>
                 {blocking.map((item, i) => (
                   <Row
@@ -240,7 +243,7 @@ export function PrDetail({ owner, repo, pr }: { owner: string; repo: string; pr:
                     status={item.status}
                     title={<>{item.title} <StatusWord status={item.status} /></>}
                     meta={item.detail}
-                    right={item.label}
+                    right={t(item.label)}
                     onClick={() => setTab(item.tab)}
                   />
                 ))}
@@ -249,15 +252,15 @@ export function PrDetail({ owner, repo, pr }: { owner: string; repo: string; pr:
           )}
 
           <div className="tabs mt-7 mb-1 flex flex-wrap gap-1 border-b border-hairline-strong" role="tablist">
-            {TABS.map((t) => (
+            {TABS.map((item) => (
               <button
-                key={t.key}
+                key={item.key}
                 role="tab"
                 className="tab border-b-2 border-transparent px-2.5 py-2 font-mono text-xs uppercase tracking-[0.06em] text-ink-muted aria-selected:border-brand aria-selected:text-ink"
-                aria-selected={tab === t.key}
-                onClick={() => setTab(t.key)}
+                aria-selected={tab === item.key}
+                onClick={() => setTab(item.key)}
               >
-                {t.label} <span className="tabular-nums">{counts[t.key]}</span>
+                {t(item.label)} <span className="tabular-nums">{counts[item.key]}</span>
               </button>
             ))}
           </div>
@@ -270,7 +273,7 @@ export function PrDetail({ owner, repo, pr }: { owner: string; repo: string; pr:
                        meta={<Citations items={c.evidence} />}
                        right={c.category} />
                 ))
-              : <Empty>The description made no verifiable claims.</Empty>)}
+              : <Empty>{t('pr.emptyClaims')}</Empty>)}
 
             {tab === 'docs' && (data.docs?.length
               ? data.docs.map((d, i) => (
@@ -278,7 +281,7 @@ export function PrDetail({ owner, repo, pr }: { owner: string; repo: string; pr:
                        title={<>{d.path} <StatusWord status={d.status} /></>}
                        meta={d.what} />
                 ))
-              : <Empty>No documentation related to this change was found.</Empty>)}
+              : <Empty>{t('pr.emptyDocs')}</Empty>)}
 
             {tab === 'impact' && (data.impact?.length
               ? data.impact.map((it, i) => (
@@ -287,7 +290,7 @@ export function PrDetail({ owner, repo, pr }: { owner: string; repo: string; pr:
                        meta={it.detail}
                        right={[it.requirement_source, it.area].filter(Boolean).join(' · ')} />
                 ))
-              : <Empty>No requirement was traced to this change.</Empty>)}
+              : <Empty>{t('pr.emptyImpact')}</Empty>)}
 
             {tab === 'callers' && (data.callers?.length
               ? data.callers.map((c, i) => (
@@ -296,7 +299,7 @@ export function PrDetail({ owner, repo, pr }: { owner: string; repo: string; pr:
                        meta={<><Citations items={c.callers} /> {c.note}</>}
                        right={c.defined_at} />
                 ))
-              : <Empty>Nothing outside this diff calls the changed code.</Empty>)}
+              : <Empty>{t('pr.emptyCallers')}</Empty>)}
 
             {tab === 'contracts' && (data.contracts?.length
               ? data.contracts.map((c, i) => (
@@ -304,7 +307,7 @@ export function PrDetail({ owner, repo, pr }: { owner: string; repo: string; pr:
                        title={<>{c.path} <StatusWord status={c.status} /></>}
                        meta={c.detail} right={c.kind} />
                 ))
-              : <Empty>No API, schema, type or proto contract was touched.</Empty>)}
+              : <Empty>{t('pr.emptyContracts')}</Empty>)}
 
             {tab === 'crosspr' && (data.cross_pr?.length
               ? data.cross_pr.map((c, i) => (
@@ -315,51 +318,51 @@ export function PrDetail({ owner, repo, pr }: { owner: string; repo: string; pr:
                 ))
               : <Empty>
                   {data.siblings?.siblings?.length
-                    ? 'No collision found with the open pull requests that overlap this one.'
+                    ? t('pr.emptyCrossPrNoCollision')
                     : data.siblings?.skipped
-                      || 'No overlapping open pull request was scanned.'}
+                      || t('pr.emptyCrossPrNotScanned')}
                 </Empty>)}
 
             {tab === 'tests' && (data.tests?.length
-              ? data.tests.map((t, i) => (
-                  <Row key={i} status={t.assertion_quality}
-                       title={<>{t.target} <StatusWord status={t.assertion_quality} /></>}
+              ? data.tests.map((test, i) => (
+                  <Row key={i} status={test.assertion_quality}
+                       title={<>{test.target} <StatusWord status={test.assertion_quality} /></>}
                        meta={
-                         t.uncovered_edge_cases?.length
-                           ? t.uncovered_edge_cases.map((e, j) => (
-                               <div key={j}>uncovered: {e.case} → {e.where}</div>))
-                           : t.note
+                         test.uncovered_edge_cases?.length
+                           ? test.uncovered_edge_cases.map((e, j) => (
+                               <div key={j}>{t('pr.uncovered', { case: e.case, where: e.where })}</div>))
+                           : test.note
                        } />
                 ))
-              : <Empty>No test coverage was assessed for this change.</Empty>)}
+              : <Empty>{t('pr.emptyTests')}</Empty>)}
 
             {tab === 'threads' && (data.threads?.length
-              ? data.threads.map((t, i) => (
-                  <Row key={i} status={t.status}
-                       title={<>{t.text} <StatusWord status={t.status} /></>}
-                       meta={t.note} />
+              ? data.threads.map((thread, i) => (
+                  <Row key={i} status={thread.status}
+                       title={<>{thread.text} <StatusWord status={thread.status} /></>}
+                       meta={thread.note} />
                 ))
-              : <Empty>No review comments to re-check.</Empty>)}
+              : <Empty>{t('pr.emptyThreads')}</Empty>)}
 
             {tab === 'confirm' && (data.answers?.length
               ? data.answers.map((a, i) => (
                   <Row key={i} status={a.answer === 'SKIPPED' ? 'UNVERIFIED' : 'PASS'}
-                       title={a.question} meta={`answered: ${a.answer}`} right={a.kind} />
+                       title={a.question} meta={t('pr.answered', { answer: a.answer })} right={a.kind} />
                 ))
-              : <Empty>The reviewer had no questions for a human.</Empty>)}
+              : <Empty>{t('pr.emptyConfirm')}</Empty>)}
 
             {tab === 'context' && (data.pruned?.length
               ? data.pruned.map((p, i) => (
                   <Row key={i} status={p.dropped ? 'UNVERIFIED' : 'PARTIAL'}
                        title={p.filename} meta={p.reason}
-                       right={p.dropped ? 'dropped' : 'patch trimmed'} />
+                       right={p.dropped ? t('pr.dropped') : t('pr.trimmed')} />
                 ))
-              : <Empty>The whole diff went into the review — nothing was trimmed.</Empty>)}
+              : <Empty>{t('pr.emptyContext')}</Empty>)}
           </Ledger>
 
           {data.replies && data.replies.length > 0 && (
             <>
-              <Eyebrow>Replies answered</Eyebrow>
+              <Eyebrow>{t('pr.repliesHeading')}</Eyebrow>
               <Ledger>
                 {data.replies.map((r, i) => (
                   <Row key={i} status="PASS" title={r.body}

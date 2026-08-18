@@ -1,5 +1,6 @@
 import type { PhaseStatus } from '../api'
 import type { Tone } from '../status'
+import type { Key } from '../strings'
 
 /** Hand-placed, not auto-laid-out: eleven fixed phases in a shape that reads
  *  left-to-right, with the reply loop above the spine, the sibling scan below
@@ -28,12 +29,12 @@ export const STATUS_TONE: Record<PhaseStatus, Tone> = {
   skipped: 'unknown',
 }
 
-export const STATUS_WORD: Record<PhaseStatus, string> = {
-  done: 'done',
-  running: 'running',
-  failed: 'failed',
-  pending: 'pending',
-  skipped: 'skipped',
+export const STATUS_KEY: Record<PhaseStatus, Key> = {
+  done: 'graph.statusDone',
+  running: 'graph.statusRunning',
+  failed: 'graph.statusFailed',
+  pending: 'graph.statusPending',
+  skipped: 'graph.statusSkipped',
 }
 
 /** Which detail tab a node opens. Phases with no tab of their own land on the

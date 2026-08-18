@@ -3,6 +3,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { App } from './App'
+import { setLang } from './i18n'
 // PrDetail lazy-loads this module (`lazy(() => import('../graph/PipelineGraph'))`)
 // on first mount. Importing it here too, eagerly, warms the same module-graph
 // entry ahead of time so the PR route's flush loop below reliably observes it
@@ -21,6 +22,7 @@ const CONFIG = {
   auto_describe: false,
   docs_fix_pr: false,
   inline_suggestions: false,
+  language: 'en',
   gate: { verification_score_min: 0.8 },
   provider: {
     name: 'anthropic',
@@ -128,6 +130,7 @@ async function render(path: string) {
 
 beforeEach(() => {
   ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+  localStorage.removeItem('pr-sentinel-lang')
   vi.stubGlobal('fetch', mockFetch())
   vi.stubGlobal('matchMedia', () => ({
     matches: false, addEventListener() {}, removeEventListener() {},
@@ -146,6 +149,11 @@ afterEach(() => {
   container?.remove()
   vi.unstubAllGlobals()
 })
+
+// Runs whether or not the test body above threw, so a Vietnamese switch that
+// never reaches its own switch-back (a failed assertion mid-test) still
+// cannot leak into the next test in this file or any file after it.
+afterEach(() => act(() => setLang('en')))
 
 function unnamedButtons(): HTMLButtonElement[] {
   return Array.from(container.querySelectorAll('button')).filter(
@@ -166,6 +174,23 @@ describe('accessibility basics', () => {
   it('sets the theme attribute on the document element', async () => {
     await render('/')
     expect(['light', 'dark']).toContain(document.documentElement.dataset.theme)
+  })
+
+  it('declares the document language and updates it when the switcher is used', async () => {
+    await render('/')
+    expect(['en', 'vi']).toContain(document.documentElement.lang)
+
+    const button = Array.from(container.querySelectorAll('button'))
+      .find((b) => ['EN', 'VI'].includes((b.textContent ?? '').trim())) as HTMLButtonElement
+    expect(button).toBeDefined()
+
+    const before = document.documentElement.lang
+    await act(async () => { button.click() })
+
+    // A screen reader pronounces the page by this attribute; a Vietnamese
+    // interface under lang="en" is read out in the wrong phonology.
+    expect(document.documentElement.lang).not.toBe(before)
+    expect(button.getAttribute('aria-label')).toBeTruthy()
   })
 
   // The '/' route above only ever mounts the header's theme toggle — an

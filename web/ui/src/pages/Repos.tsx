@@ -2,10 +2,12 @@ import { useEffect, useState } from 'react'
 import { api } from '../api'
 import type { RepoRecord } from '../api'
 import { Empty, ErrorNotice, Eyebrow, Ledger, Loading, PageSub, PageTitle, Row } from '../components'
+import { useT } from '../i18n'
 import { formatCost, formatScore } from '../status'
 import { navigate } from '../router'
 
 export function Repos() {
+  const t = useT()
   const [repos, setRepos] = useState<RepoRecord[] | null>(null)
   const [error, setError] = useState('')
 
@@ -13,26 +15,28 @@ export function Repos() {
     api.repos().then((d) => setRepos(d.repos)).catch((e) => setError(String(e.message)))
   }, [])
 
-  if (error) return <ErrorNotice message={`Could not load repos — ${error}`} />
-  if (!repos) return <Loading label="Loading repositories" />
+  if (error) return <ErrorNotice message={t('repos.error', { detail: error })} />
+  if (!repos) return <Loading label={t('repos.loading')} />
 
   const reviewed = repos.filter((r) => r.has_data)
   const waiting = repos.filter((r) => !r.has_data)
 
   return (
     <>
-      <PageTitle>Every claim, checked against the code.</PageTitle>
+      <PageTitle>{t('repos.title')}</PageTitle>
       <PageSub>
-        {reviewed.length} repo{reviewed.length === 1 ? '' : 's'} reviewed ·{' '}
-        {reviewed.reduce((n, r) => n + r.prs_total, 0)} pull requests on the record
+        {reviewed.length === 1
+          ? t('repos.subOne', { n: reviewed.length })
+          : t('repos.subMany', { n: reviewed.length })} ·{' '}
+        {t('repos.subPrs', { n: reviewed.reduce((n, r) => n + r.prs_total, 0) })}
       </PageSub>
 
-      <Eyebrow>Reviewed repositories</Eyebrow>
+      <Eyebrow>{t('repos.reviewedHeading')}</Eyebrow>
       <Ledger>
         {reviewed.length === 0 ? (
           <Empty>
-            No reviews yet. Run <code>python -m src.run owner/repo 123</code>, or add a repo
-            on the Config page and let the poller pick it up.
+            {t('repos.emptyBefore')}<code>python -m src.run owner/repo 123</code>
+            {t('repos.emptyAfter')}
           </Empty>
         ) : (
           reviewed.map((r) => (
@@ -42,14 +46,15 @@ export function Repos() {
               title={`${r.owner}/${r.repo}`}
               meta={
                 <>
-                  {r.prs_total} PR · {r.bugs_total} bugs · {r.doc_errors_total} doc errors
-                  {r.breaking_total ? ` · ${r.breaking_total} breaking` : ''}
-                  {r.test_gaps_total ? ` · ${r.test_gaps_total} test gaps` : ''}
+                  {t('repos.prs', { n: r.prs_total })} · {t('repos.bugs', { n: r.bugs_total })} ·{' '}
+                  {t('repos.docErrors', { n: r.doc_errors_total })}
+                  {r.breaking_total ? ` · ${t('repos.breaking', { n: r.breaking_total })}` : ''}
+                  {r.test_gaps_total ? ` · ${t('repos.testGaps', { n: r.test_gaps_total })}` : ''}
                 </>
               }
               right={
                 <>
-                  {formatScore(r.avg_verification_score)} verified<br />
+                  {t('repos.verified', { score: formatScore(r.avg_verification_score) })}<br />
                   {formatCost(r.cost_total)}
                 </>
               }
@@ -61,14 +66,18 @@ export function Repos() {
 
       {waiting.length > 0 && (
         <>
-          <Eyebrow>Watched, not yet reviewed</Eyebrow>
+          <Eyebrow>{t('repos.waitingHeading')}</Eyebrow>
           <Ledger>
             {waiting.map((r) => (
               <Row
                 key={`${r.owner}/${r.repo}`}
                 status="UNVERIFIED"
                 title={`${r.owner}/${r.repo}`}
-                meta="Set to auto — the poller reviews its next open PR"
+                meta={t('repos.waitingMeta')}
+                // `auto` is the literal repo mode from prsentinel.yml, the
+                // same value Config.tsx's mode select shows — see the note
+                // in strings.ts. It stays English rather than getting a
+                // dictionary key.
                 right="AUTO"
                 onClick={() => navigate(`/repos/${r.owner}/${r.repo}`)}
               />

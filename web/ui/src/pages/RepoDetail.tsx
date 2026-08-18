@@ -5,17 +5,20 @@ import {
   Empty, ErrorNotice, Eyebrow, GateBand, Ledger, Loading, Notice, PageSub, PageTitle, Row, Tile,
   Tiles,
 } from '../components'
+import { useT } from '../i18n'
+import type { Key } from '../strings'
 import { formatCost, formatScore } from '../status'
 import { navigate } from '../router'
 import { Button } from '@/components/ui/button'
 
-const STATUS_LABEL: Record<string, string> = {
-  reviewed: 'Reviewed',
-  reviewing: 'Reviewing now',
-  not_reviewed: 'Not reviewed',
+const STATUS_KEY: Record<string, Key> = {
+  reviewed: 'repo.statusReviewed',
+  reviewing: 'repo.statusReviewing',
+  not_reviewed: 'repo.statusNotReviewed',
 }
 
 export function RepoDetail({ owner, repo }: { owner: string; repo: string }) {
+  const t = useT()
   const [data, setData] = useState<RepoRecord | null>(null)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState<number | null>(null)
@@ -39,7 +42,7 @@ export function RepoDetail({ owner, repo }: { owner: string; repo: string }) {
   }
 
   if (error && !data) return <ErrorNotice message={error} />
-  if (!data) return <Loading label="Loading repository" />
+  if (!data) return <Loading label={t('repo.loading')} />
 
   const byPr = new Map(data.prs.map((p) => [p.pr, p]))
   const unavailable = data.open_prs.some((row) => row.unavailable)
@@ -56,27 +59,24 @@ export function RepoDetail({ owner, repo }: { owner: string; repo: string }) {
       {error && <Notice tone="fail">{error}</Notice>}
 
       <Tiles>
-        <Tile label="PRs reviewed" value={data.prs_total} />
-        <Tile label="Verified" value={formatScore(data.avg_verification_score)}
-              note="claims backed by file:line" />
-        <Tile label="Bugs" value={data.bugs_total} note="failed claims + broken impact" />
-        <Tile label="Doc errors" value={data.doc_errors_total} />
-        <Tile label="Breaking" value={data.breaking_total} note="API + schema contracts" />
-        <Tile label="Spent" value={formatCost(data.cost_total)} />
+        <Tile label={t('repo.tilePrs')} value={data.prs_total} />
+        <Tile label={t('repo.tileVerified')} value={formatScore(data.avg_verification_score)}
+              note={t('repo.tileVerifiedNote')} />
+        <Tile label={t('repo.tileBugs')} value={data.bugs_total} note={t('repo.tileBugsNote')} />
+        <Tile label={t('repo.tileDocErrors')} value={data.doc_errors_total} />
+        <Tile label={t('repo.tileBreaking')} value={data.breaking_total}
+              note={t('repo.tileBreakingNote')} />
+        <Tile label={t('repo.tileSpent')} value={formatCost(data.cost_total)} />
       </Tiles>
 
-      <Eyebrow>Merge decisions</Eyebrow>
+      <Eyebrow>{t('repo.gateHeading')}</Eyebrow>
       <GateBand counts={data.gate_count} />
 
-      <Eyebrow>Open pull requests</Eyebrow>
-      {unavailable && (
-        <Notice>
-          GitHub is unreachable — showing pull requests from stored reviews only.
-        </Notice>
-      )}
+      <Eyebrow>{t('repo.openPrsHeading')}</Eyebrow>
+      {unavailable && <Notice>{t('repo.unreachable')}</Notice>}
       <Ledger>
         {data.open_prs.length === 0 ? (
-          <Empty>No open pull requests.</Empty>
+          <Empty>{t('repo.noOpenPrs')}</Empty>
         ) : (
           data.open_prs.map((row) => {
             const rec = byPr.get(row.pr)
@@ -89,15 +89,19 @@ export function RepoDetail({ owner, repo }: { owner: string; repo: string }) {
                     <span className="font-mono text-ink-muted">
                       #{row.pr}
                     </span>{' '}
-                    {row.title || '(no title)'} {row.draft ? '· draft' : ''}
+                    {row.title || t('common.noTitle')} {row.draft ? `· ${t('repo.draft')}` : ''}
                   </>
                 }
                 meta={
                   <>
-                    {STATUS_LABEL[row.status]}
-                    {row.rounds ? ` · ${row.rounds} round${row.rounds > 1 ? 's' : ''}` : ''}
-                    {rec ? ` · ${rec.bugs} bugs · ${rec.doc_errors} doc errors` : ''}
-                    {rec?.breaking ? ` · ${rec.breaking} breaking` : ''}
+                    {STATUS_KEY[row.status] ? t(STATUS_KEY[row.status]) : row.status}
+                    {row.rounds
+                      ? ` · ${row.rounds > 1
+                          ? t('repo.roundMany', { n: row.rounds })
+                          : t('repo.roundOne', { n: row.rounds })}`
+                      : ''}
+                    {rec ? ` · ${t('repo.prBugs', { n: rec.bugs })} · ${t('repo.prDocErrors', { n: rec.doc_errors })}` : ''}
+                    {rec?.breaking ? ` · ${t('repo.prBreaking', { n: rec.breaking })}` : ''}
                   </>
                 }
                 right={
@@ -109,7 +113,7 @@ export function RepoDetail({ owner, repo }: { owner: string; repo: string }) {
                       disabled={busy === row.pr || row.status === 'reviewing'}
                       onClick={(e) => { e.stopPropagation(); review(row.pr) }}
                     >
-                      {row.status === 'reviewed' ? 'Re-review' : 'Review now'}
+                      {row.status === 'reviewed' ? t('repo.reReview') : t('repo.reviewNow')}
                     </Button>
                   </>
                 }

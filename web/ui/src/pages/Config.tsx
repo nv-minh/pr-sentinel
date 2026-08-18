@@ -4,6 +4,7 @@ import { api } from '../api'
 import {
   Empty, ErrorNotice, Eyebrow, Ledger, Loading, Notice, PageSub, PageTitle, Row, Tile, Tiles,
 } from '../components'
+import { useLang, useT } from '../i18n'
 import { Button } from '@/components/ui/button'
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -17,6 +18,7 @@ interface ConfigState {
   auto_describe: boolean
   docs_fix_pr: boolean
   inline_suggestions: boolean
+  language: string
   gate: { verification_score_min: number }
   provider: ProviderInfo
   providers: string[]
@@ -28,6 +30,8 @@ export function Config() {
   const [cfg, setCfg] = useState<ConfigState | null>(null)
   const [error, setError] = useState('')
   const [newRepo, setNewRepo] = useState('')
+  const [uiLang, setUiLang] = useLang()
+  const t = useT()
 
   const load = useCallback(() => {
     api.config().then(setCfg).catch((e) => setError(String(e.message)))
@@ -48,57 +52,58 @@ export function Config() {
   if (error && !cfg) {
     return (
       <ErrorNotice
-        message={<>{error} — create <code>prsentinel.yml</code> next to the repo, or point <code>PRSENTINEL_CONFIG</code> at it.</>}
+        message={<>{error}{t('config.errorAfter')}<code>prsentinel.yml</code>
+          {t('config.errorMid')}<code>PRSENTINEL_CONFIG</code>{t('config.errorEnd')}</>}
       />
     )
   }
-  if (!cfg) return <Loading label="Loading configuration" />
+  if (!cfg) return <Loading label={t('config.loading')} />
 
   return (
     <>
-      <PageTitle>What the poller watches</PageTitle>
+      <PageTitle>{t('config.title')}</PageTitle>
       <PageSub>{cfg.config_path}</PageSub>
 
       {error && <Notice tone="fail">{error}</Notice>}
 
       <Tiles>
-        <Tile label="Org" value={cfg.org || '—'} />
-        <Tile label="Poll every" value={`${cfg.interval_minutes}m`} />
-        <Tile label="Gate at" value={`${Math.round(cfg.gate.verification_score_min * 100)}%`}
-              note="minimum verification score" />
-        <Tile label="Posts comments" value={cfg.post_comment ? 'yes' : 'no'} />
-        <Tile label="Writes doc PRs" value={cfg.docs_fix_pr ? 'yes' : 'no'} />
-        <Tile label="Rewrites PR body" value={cfg.auto_describe ? 'yes' : 'no'} />
+        <Tile label={t('config.tileOrg')} value={cfg.org || '—'} />
+        <Tile label={t('config.tilePollEvery')} value={`${cfg.interval_minutes}m`} />
+        <Tile label={t('config.tileGateAt')} value={`${Math.round(cfg.gate.verification_score_min * 100)}%`}
+              note={t('config.tileGateNote')} />
+        <Tile label={t('config.tilePostsComments')} value={cfg.post_comment ? t('common.yes') : t('common.no')} />
+        <Tile label={t('config.tileDocPrs')} value={cfg.docs_fix_pr ? t('common.yes') : t('common.no')} />
+        <Tile label={t('config.tileRewritesBody')} value={cfg.auto_describe ? t('common.yes') : t('common.no')} />
       </Tiles>
 
-      <Eyebrow>Model provider</Eyebrow>
+      <Eyebrow>{t('config.providerHeading')}</Eyebrow>
       {!cfg.provider.token_present && (
         <Notice tone="fail">
-          No key for <code>{cfg.provider.name}</code> — set{' '}
-          <code>{cfg.provider.token_env}</code> in <code>.env</code>. Reviews will
-          refuse to start until it is there.
+          {t('config.noKeyBefore')}<code>{cfg.provider.name}</code>
+          {t('config.noKeyMid')}<code>{cfg.provider.token_env}</code>
+          {t('config.noKeyAfter')}<code>.env</code>{t('config.noKeyEnd')}
         </Notice>
       )}
       <Tiles>
-        <Tile label="Provider" value={cfg.provider.name} note={cfg.provider.base_url} />
-        <Tile label="Deep dive" value={<span className="text-base">{cfg.provider.model}</span>} />
-        <Tile label="Claims" value={cfg.provider.claims_model} />
+        <Tile label={t('config.tileProvider')} value={cfg.provider.name} note={cfg.provider.base_url} />
+        <Tile label={t('config.tileDeepDive')} value={<span className="text-base">{cfg.provider.model}</span>} />
+        <Tile label={t('config.tileClaims')} value={cfg.provider.claims_model} />
         <Tile
-          label="Schema"
-          value={cfg.provider.structured_output === 'native' ? 'enforced' : 'prompted'}
+          label={t('config.tileSchema')}
+          value={cfg.provider.structured_output === 'native' ? t('config.schemaEnforced') : t('config.schemaPrompted')}
           note={cfg.provider.structured_output === 'native'
-            ? 'the API validates the JSON'
-            : 'the reply is parsed and repaired'}
+            ? t('config.schemaEnforcedNote')
+            : t('config.schemaPromptedNote')}
         />
-        <Tile label="Key" value={cfg.provider.token_present ? 'set' : 'missing'}
+        <Tile label={t('config.tileKey')} value={cfg.provider.token_present ? t('config.keySet') : t('config.keyMissing')}
               note={cfg.provider.token_env} />
-        <Tile label="Costs" value={cfg.provider.reports_cost ? 'tracked' : 'unknown'}
-              note={cfg.provider.reports_cost ? '' : 'budget caps do not apply'} />
+        <Tile label={t('config.tileCosts')} value={cfg.provider.reports_cost ? t('config.costsTracked') : t('config.costsUnknown')}
+              note={cfg.provider.reports_cost ? '' : t('config.costsUnknownNote')} />
       </Tiles>
       <div className="my-2.5 flex flex-wrap items-center gap-2.5">
         <Select value={cfg.provider.name}
                 onValueChange={(name) => act(() => api.setProvider(name))}>
-          <SelectTrigger className="w-[180px] font-mono text-xs" aria-label="Model provider">
+          <SelectTrigger className="w-[180px] font-mono text-xs" aria-label={t('config.providerHeading')}>
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -110,17 +115,60 @@ export function Config() {
           </SelectContent>
         </Select>
         <span className="font-mono text-[12px] uppercase tracking-[0.08em] text-ink-muted">
-          tokens are read from the environment only
+          {t('config.tokensNote')}
         </span>
       </div>
 
-      <Eyebrow>Repositories</Eyebrow>
+      <Eyebrow>{t('config.languageHeading')}</Eyebrow>
+      <div className="my-2.5 flex flex-wrap items-start gap-6">
+        <div className="flex flex-col gap-1.5">
+          <span className="font-mono text-[10.5px] uppercase tracking-[0.14em] text-ink-muted">
+            {t('config.uiLanguage')}
+          </span>
+          <Select value={uiLang} onValueChange={(next) => setUiLang(next as 'en' | 'vi')}>
+            <SelectTrigger className="w-[150px] font-mono text-xs"
+                           aria-label={t('config.uiLanguageAria')}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="en" className="font-mono text-xs">{t('lang.en')}</SelectItem>
+              <SelectItem value="vi" className="font-mono text-xs">
+                <span lang="vi">{t('lang.vi')}</span>
+              </SelectItem>
+            </SelectContent>
+          </Select>
+          <span className="text-xs text-ink-muted">{t('config.uiLanguageNote')}</span>
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <span className="font-mono text-[10.5px] uppercase tracking-[0.14em] text-ink-muted">
+            {t('config.reviewLanguage')}
+          </span>
+          <Select value={cfg.language}
+                  onValueChange={(next) => act(() => api.setLanguage(next))}>
+            <SelectTrigger className="w-[150px] font-mono text-xs"
+                           aria-label={t('config.reviewLanguageAria')}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="en" className="font-mono text-xs">{t('lang.en')}</SelectItem>
+              <SelectItem value="vi" className="font-mono text-xs">
+                <span lang="vi">{t('lang.vi')}</span>
+              </SelectItem>
+            </SelectContent>
+          </Select>
+          <span className="text-xs text-ink-muted">{t('config.reviewLanguageNote')}</span>
+        </div>
+      </div>
+      <Notice>{t('config.languageFootnote')}</Notice>
+
+      <Eyebrow>{t('config.reposHeading')}</Eyebrow>
       <div className="my-2.5 flex flex-wrap items-center gap-2.5">
         <input
           type="text"
           className="rounded border border-input bg-surface px-2 py-1.5 font-mono text-xs text-ink"
           value={newRepo}
-          placeholder={cfg.org ? 'repo-name or owner/repo' : 'owner/repo'}
+          placeholder={cfg.org ? t('config.repoPlaceholderOrg') : t('config.repoPlaceholder')}
           onChange={(e) => setNewRepo(e.target.value)}
         />
         <Button
@@ -130,13 +178,13 @@ export function Config() {
             setNewRepo('')
           })}
         >
-          Watch repo
+          {t('config.watchRepo')}
         </Button>
       </div>
 
       <Ledger>
         {cfg.repos.length === 0 ? (
-          <Empty>No repositories configured yet.</Empty>
+          <Empty>{t('config.noRepos')}</Empty>
         ) : (
           cfg.repos.map((r) => (
             <Row
@@ -144,9 +192,9 @@ export function Config() {
               status={r.mode === 'auto' ? 'PASS' : r.mode === 'manual' ? 'PARTIAL' : 'UNVERIFIED'}
               title={r.name}
               meta={
-                r.mode === 'auto' ? 'Reviewed automatically'
-                  : r.mode === 'manual' ? 'Reviewed only when you ask'
-                  : 'Not configured'
+                r.mode === 'auto' ? t('config.modeAuto')
+                  : r.mode === 'manual' ? t('config.modeManual')
+                  : t('config.modeUnlisted')
               }
               right={
                 <>
@@ -154,7 +202,7 @@ export function Config() {
                     value={r.mode === 'unlisted' ? 'manual' : r.mode}
                     onValueChange={(mode) => act(() => api.setMode(r.name, mode))}
                   >
-                    <SelectTrigger className="h-7 w-[110px] font-mono text-xs" aria-label={`Mode for ${r.name}`}>
+                    <SelectTrigger className="h-7 w-[110px] font-mono text-xs" aria-label={t('config.modeAria', { repo: r.name })}>
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -165,7 +213,7 @@ export function Config() {
                   {r.mode !== 'unlisted' && (
                     <Button variant="outline" size="sm"
                             onClick={() => act(() => api.removeRepo(r.name))}>
-                      Remove
+                      {t('config.remove')}
                     </Button>
                   )}
                 </>

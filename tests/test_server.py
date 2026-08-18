@@ -195,6 +195,27 @@ def test_api_config_missing_file_404(tmp_path, monkeypatch):
     assert TestClient(app).get("/api/config").status_code == 404
 
 
+def test_api_config_reports_the_review_language(tmp_path, monkeypatch):
+    _config(tmp_path, monkeypatch,
+            "org: sample-org\nlanguage: vi\nrepos:\n  sample-app: auto\n")
+    monkeypatch.setattr("gh.run_gh", lambda args, **kw: [])
+    assert TestClient(app).get("/api/config").json()["language"] == "vi"
+
+
+def test_api_set_language(tmp_path, monkeypatch):
+    cfg_path = _config(tmp_path, monkeypatch)
+    assert TestClient(app).post("/api/config/language",
+                                json={"language": "vi"}).status_code == 200
+    assert load_config(cfg_path)["language"] == "vi"
+
+
+def test_api_set_language_rejects_an_unsupported_language(tmp_path, monkeypatch):
+    cfg_path = _config(tmp_path, monkeypatch)
+    r = TestClient(app).post("/api/config/language", json={"language": "fr"})
+    assert r.status_code == 400
+    assert load_config(cfg_path)["language"] == "en"
+
+
 # ------------------------------------------------------------------------- review
 
 @pytest.fixture

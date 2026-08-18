@@ -4,10 +4,11 @@ import {
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import type { Pipeline } from '../api'
+import { useLookup, useT } from '../i18n'
 import { GLYPH, TONE_COLOR } from '../status'
 import { useTheme } from '../theme'
 import PhaseNode from './PhaseNode'
-import { POSITION, STATUS_TONE, STATUS_WORD } from './layout'
+import { POSITION, STATUS_KEY, STATUS_TONE } from './layout'
 
 const nodeTypes = { phase: PhaseNode }
 
@@ -28,6 +29,8 @@ export default function PipelineGraph({
   onSelect: (id: string) => void
 }) {
   const [theme] = useTheme()
+  const t = useT()
+  const lookup = useLookup()
   const still = prefersReducedMotion()
   const wrapperRef = useRef<HTMLDivElement>(null)
 
@@ -113,9 +116,9 @@ export default function PipelineGraph({
                   : 'border-hairline-strong text-ink-muted hover:text-ink'
               }`}
             >
-              {node.label}{' '}
+              {lookup(`graph.phase.${node.id}`, node.label)}{' '}
               <span style={{ color: TONE_COLOR[STATUS_TONE[node.status]] }}>
-                {GLYPH[STATUS_TONE[node.status]]} {STATUS_WORD[node.status]}
+                {GLYPH[STATUS_TONE[node.status]]} {t(STATUS_KEY[node.status])}
               </span>
             </button>
           </li>

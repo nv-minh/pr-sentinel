@@ -3,6 +3,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { Empty, ErrorNotice, GateBand, Loading, Row, StatusWord, Tile } from './components'
+import { setLang, useLang } from './i18n'
 
 let container: HTMLDivElement
 let root: Root
@@ -16,14 +17,32 @@ function render(node: React.ReactNode) {
   })
 }
 
+// Drives the real store the way the header does, rather than reaching into
+// the module — the test stays blind to how the store is implemented.
+function LangSwitcher() {
+  const [, setLang] = useLang()
+  return (
+    <>
+      <button type="button" data-testid="to-vi" onClick={() => setLang('vi')}>vi</button>
+      <button type="button" data-testid="to-en" onClick={() => setLang('en')}>en</button>
+    </>
+  )
+}
+
 beforeEach(() => {
   ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+  localStorage.clear()
 })
 
 afterEach(() => {
   act(() => root?.unmount())
   container?.remove()
 })
+
+// Runs whether or not the test body above threw, so a Vietnamese switch that
+// never reaches its own switch-back (a failed assertion mid-test) still
+// cannot leak into the next test in this file or any file after it.
+afterEach(() => act(() => setLang('en')))
 
 describe('primitives', () => {
   it('renders a status as glyph and word, never colour alone', () => {
@@ -48,6 +67,30 @@ describe('primitives', () => {
   it('says so when there is nothing to band', () => {
     render(<GateBand counts={undefined} />)
     expect(container.textContent).toContain('No scored reviews yet')
+  })
+
+  it('translates the gate legend without translating the status vocabulary', () => {
+    render(
+      <>
+        <LangSwitcher />
+        <GateBand counts={{ pass: 2, fail: 1 }} />
+      </>,
+    )
+    expect(container.textContent).toContain('Clear to merge')
+
+    act(() => { (container.querySelector('[data-testid="to-vi"]') as HTMLButtonElement).click() })
+
+    expect(container.textContent).toContain('Sẵn sàng merge')
+    expect(container.textContent).toContain('Bị chặn')
+    expect(container.textContent).not.toContain('Clear to merge')
+    // The glyphs carry the reading when colour cannot; they are not words.
+    expect(container.textContent).toContain('✓')
+
+    // Switch back inside the test: the store is module-level, so leaving it on
+    // 'vi' would hand the next test in this file a Vietnamese GateBand and
+    // break the exact aria-label assertion at :45.
+    act(() => { (container.querySelector('[data-testid="to-en"]') as HTMLButtonElement).click() })
+    expect(container.textContent).toContain('Clear to merge')
   })
 
   it('keeps a row clickable by keyboard', () => {

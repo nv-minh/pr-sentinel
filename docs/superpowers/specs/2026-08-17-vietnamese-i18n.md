@@ -115,11 +115,18 @@ const en = { 'nav.repos': 'Repos', /* … */ }
 const vi: Record<keyof typeof en, string> = { 'nav.repos': 'Kho mã', /* … */ }
 ```
 
-The annotation is `Record<keyof typeof en, string>` and **not** `typeof en`.
-`typeof en` infers literal types and would require the Vietnamese values to be
-byte-identical to the English ones. With `Record`, a missing Vietnamese key is a
-`tsc -b` error — and `tsc -b` already runs as the first half of `npm run build`,
-so an incomplete translation cannot reach a bundle.
+The annotation makes a **missing** Vietnamese key a `tsc -b` error — and `tsc -b`
+already runs as the first half of `npm run build`, so an incomplete translation
+cannot reach a bundle.
+
+(An earlier draft of this spec justified spelling it `Record<keyof typeof en,
+string>` rather than `typeof en` on the grounds that `typeof en` would infer
+literal types and demand identical values. That is wrong, and a reviewer
+disproved it with a standalone `tsc --strict` run: because `en` is declared
+without `as const`, `typeof en` widens each property to `string`, so differing
+Vietnamese values compile fine either way. Both spellings reject a missing key
+equally. The `Record` form is kept because it states the intent directly, not
+because the alternative fails.)
 
 Flat dotted keys, grouped by namespace: `nav.*`, `common.*`, `repos.*`,
 `repo.*`, `pr.*`, `config.*`, `gate.*`, `graph.phase.*`, `graph.metric.*`,
@@ -234,6 +241,12 @@ of silently rendering English.
 dashboard exposes it, and that the interface language is a separate, per-browser
 setting that does not affect what the agent writes.
 
+The same list of what `language` reaches is duplicated in two more places: the
+`#` block above the `language:` key in `prsentinel.yml`, and the `#` block above
+the `DEFAULTS["language"]` entry in `src/autoreview_config.py`. All three —
+`README.md:267`, `prsentinel.yml` and `src/autoreview_config.py` — must be kept
+in sync whenever what `language` covers changes.
+
 ## Files touched
 
 **New:** `web/ui/src/i18n.ts`, `web/ui/src/strings.ts`, `web/ui/src/i18n.test.ts`.
@@ -241,8 +254,8 @@ setting that does not affect what the agent writes.
 **Modified:** `web/ui/src/{App,components}.tsx`, `web/ui/src/pages/*.tsx` (4),
 `web/ui/src/graph/{layout.ts,PhaseNode.tsx,PipelineGraph.tsx}`,
 `web/ui/src/status.ts`, `web/ui/src/api.ts`,
-`web/ui/src/{App,a11y,components,status}.test*`,
-`web/ui/src/graph/PipelineGraph.test.tsx`, `web/ui/index.html`,
+`web/ui/src/{App,a11y,components}.test*`,
+`web/ui/src/graph/PipelineGraph.test.tsx`,
 `web/server.py`, `src/autoreview_config.py`, `src/threads.py`,
 `src/remediate.py`, `tests/*`, `README.md`.
 
