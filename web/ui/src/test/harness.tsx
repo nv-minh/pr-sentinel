@@ -31,8 +31,9 @@ export async function mount(node: ReactNode): Promise<HTMLDivElement> {
   return container
 }
 
-/** Let queued microtasks and re-renders settle (fetch chains need a few turns). */
+/** Let queued microtasks, lazy chunks and re-renders settle. */
 export async function flush(turns = 5) {
+  await vi.dynamicImportSettled()
   for (let i = 0; i < turns; i++) {
     await act(async () => {
       await Promise.resolve()

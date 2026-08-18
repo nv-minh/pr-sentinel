@@ -150,6 +150,8 @@ async function render(path: string) {
     root = createRoot(container)
     root.render(<App />)
   })
+  await vi.dynamicImportSettled() // lazy chunks: PipelineGraph, DiffPane
+  await act(async () => { await Promise.resolve() })
   await act(async () => { await Promise.resolve() })
 }
 

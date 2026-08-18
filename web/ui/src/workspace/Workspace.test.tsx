@@ -124,6 +124,28 @@ it('switches right-pane tabs through the URL query', async () => {
   expect(el.textContent).toContain('claude-sonnet-5') // usage table
 })
 
+it('renders the diff text with the finding card anchored inside its file section', async () => {
+  stubFetch()
+  const el = await mount(<App />)
+  const section = el.querySelector('#file-src-checkout-pricing-py') as HTMLElement
+  expect(section).toBeTruthy()
+  // the changed line itself is visible (diff table, or raw-patch fallback)
+  expect(section.textContent).toContain('_apply_discounts')
+  // and the finding card renders inside that file's section
+  expect(section.querySelector('#finding-claim-0')).toBeTruthy()
+})
+
+it('falls back to raw patch text when hunk headers cannot be parsed', async () => {
+  stubFetch({ files: { ...FILES, files: [
+    { filename: 'src/checkout/pricing.py', status: 'modified', additions: 1, deletions: 0,
+      patch: '@@\n+CACHE_TTL = 300' },
+  ] } })
+  const el = await mount(<App />)
+  const pre = el.querySelector('#file-src-checkout-pricing-py pre') as HTMLElement
+  expect(pre.textContent).toContain('+CACHE_TTL = 300')
+  expect(el.textContent).toContain('hunk headers could not be parsed')
+})
+
 it('polls status only while a review runs and stops when it ends', async () => {
   vi.useFakeTimers()
   stubFetch()

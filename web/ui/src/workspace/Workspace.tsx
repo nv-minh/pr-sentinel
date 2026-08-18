@@ -1,21 +1,24 @@
-import { useEffect, useRef, useState } from 'react'
+import { Suspense, lazy, useEffect, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { api } from '../api'
 import type { ReviewStatus } from '../api'
-import { Empty, ErrorNotice, Eyebrow, Loading, Notice, PageSub, PageTitle } from '../components'
+import { ErrorNotice, Loading, Notice, PageSub, PageTitle } from '../components'
 import { useApi, usePoll } from '../hooks/useApi'
 import { useT } from '../i18n'
 import { FindingCard } from './FindingCard'
 import { Header } from './Header'
 import { NavPane } from './NavPane'
 import { RightPane } from './RightPane'
-import { attachExtras, collectFindings, planAnchors } from './model'
+import { attachExtras, collectFindings, fileSlug, planAnchors } from './model'
 import type { Finding } from './model'
 import { useWorkspaceState } from './useWorkspaceState'
 import { loadViewed, saveViewed } from './viewed'
 
 /** Which selection a pipeline phase opens: the first finding of a family, or
  * a right-pane tab for phases whose output has no findings of its own. */
+// The diff library rides in its own chunk, like the React Flow graph.
+const DiffPane = lazy(() => import('./DiffPane'))
+
 const NODE_TARGET: Record<string, { family?: Finding['family']; tab?: 'overview' | 'report' | 'run' }> = {
   snapshot: { tab: 'overview' },
   siblings: { family: 'crosspr' },
@@ -29,8 +32,6 @@ const NODE_TARGET: Record<string, { family?: Finding['family']; tab?: 'overview'
   ask: { tab: 'overview' },
   report: { tab: 'report' },
 }
-
-const fileSlug = (path: string) => `file-${path.replace(/[^a-zA-Z0-9]+/g, '-')}`
 
 export function Workspace({ owner, repo, pr }: { owner: string; repo: string; pr: number }) {
   const t = useT()
@@ -170,11 +171,6 @@ export function Workspace({ owner, repo, pr }: { owner: string; repo: string; pr
         ))
   )
 
-  const cardsFor = (list: Finding[]) => list.map((f) => (
-    <FindingCard key={f.key} finding={f} selected={state.finding === f.key}
-                 renderChips={renderChips} />
-  ))
-
   return (
     <>
       <Header owner={owner} repo={repo} pr={pr} data={data} pipeline={graph.data ?? null}
@@ -203,65 +199,15 @@ export function Workspace({ owner, repo, pr }: { owner: string; repo: string; pr
         )}
 
         <div className="min-w-0">
-          {fileList.length === 0 && plan.unanchored.length === 0 ? (
-            <Empty>{t('files.empty')}</Empty>
-          ) : (
-            <>
-              {fileList.map((f) => {
-                const slot = plan.byFile.get(f.filename)!
-                const lines = [...slot.byLine.keys()].sort((a, b) => a - b)
-                const count = slot.header.length +
-                  lines.reduce((n, l) => n + slot.byLine.get(l)!.length, 0)
-                return (
-                  <section key={f.filename} id={fileSlug(f.filename)} className="mb-6 scroll-mt-4">
-                    <p className="sr-only">
-                      {t('files.summary', { path: f.filename, added: f.additions,
-                                            deleted: f.deletions, findings: count })}
-                    </p>
-                    <div className="sticky top-0 z-10 flex items-center gap-3 border-b border-hairline-strong bg-paper py-1.5">
-                      <span className="min-w-0 truncate font-mono text-[12.5px] font-semibold"
-                            title={f.filename}>
-                        {f.filename}
-                      </span>
-                      <span className="font-mono text-[11px] tabular-nums">
-                        <span className="text-pass">+{f.additions}</span>{' '}
-                        <span className="text-fail">−{f.deletions}</span>
-                      </span>
-                      {count > 0 && (
-                        <span className="font-mono text-[11px] text-ink-muted">
-                          {t('files.inFile', { n: count })}
-                        </span>
-                      )}
-                      <label className="ml-auto flex items-center gap-1.5 font-mono text-[10.5px] uppercase tracking-[0.08em] text-ink-muted">
-                        <input type="checkbox" checked={viewed.has(f.filename)}
-                               aria-label={t('files.markViewed', { path: f.filename })}
-                               onChange={() => toggleViewed(f.filename)}
-                               className="accent-(--brand)" />
-                        {t('files.viewed')}
-                      </label>
-                    </div>
-                    {slot.header.length > 0 && (
-                      <div className="mt-2 grid gap-2">{cardsFor(slot.header)}</div>
-                    )}
-                    {!viewed.has(f.filename) && lines.map((line) => (
-                      <div key={line} className="mt-2">
-                        <div className="font-mono text-[10.5px] text-ink-muted">
-                          {t('files.line', { n: line })}
-                        </div>
-                        <div className="grid gap-2">{cardsFor(slot.byLine.get(line)!)}</div>
-                      </div>
-                    ))}
-                  </section>
-                )
-              })}
-              {plan.unanchored.length > 0 && (
-                <section className="mb-6">
-                  <Eyebrow>{t('files.unanchoredHeading')}</Eyebrow>
-                  <div className="grid gap-2">{cardsFor(plan.unanchored)}</div>
-                </section>
-              )}
-            </>
-          )}
+          <Suspense fallback={<Loading label={t('pr.loading')} />}>
+            <DiffPane files={fileList} plan={plan} viewed={viewed}
+                      onToggleViewed={toggleViewed}
+                      renderCard={(f) => (
+                        <FindingCard key={f.key} finding={f}
+                                     selected={state.finding === f.key}
+                                     renderChips={renderChips} />
+                      )} />
+          </Suspense>
         </div>
 
         <RightPane owner={owner} repo={repo} pr={pr} data={data} extras={extras.data ?? null}

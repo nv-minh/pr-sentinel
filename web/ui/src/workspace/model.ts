@@ -4,6 +4,10 @@ import type { PrDetail, PrExtras, SnapshotFile, SnapshotThread } from '../api'
 import { parseEvidenceRef } from './evidence'
 import type { EvidenceRef, ParsedRef } from './evidence'
 
+/** DOM id for a file section — shared by the nav (scroll target) and the
+ * lazy diff pane without importing across the chunk boundary. */
+export const fileSlug = (path: string) => `file-${path.replace(/[^a-zA-Z0-9]+/g, '-')}`
+
 export type Family =
   | 'contract' | 'caller' | 'claim' | 'impact' | 'doc' | 'test' | 'crosspr' | 'thread'
 
