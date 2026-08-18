@@ -1,16 +1,52 @@
 {
-  "owner": "demo", "repo": "app", "pr": 8,
+  "owner": "demo",
+  "repo": "app",
+  "pr": 8,
   "title": "Speed up checkout by caching prices",
   "body": "Caches prices for 5 minutes. No behaviour change. Fully covered by tests.",
-  "author": "dev2", "base": "main", "base_sha": "1a2b3c4d",
-  "head": "perf/price-cache", "head_sha": "77aa10bc",
-  "labels": ["performance"],
-  "files": [
-    {"filename": "src/checkout/pricing.py", "status": "modified", "additions": 61, "deletions": 14, "patch": "@@\n+CACHE_TTL = 300"},
-    {"filename": "db/migrations/0042_drop_price_history.sql", "status": "added", "additions": 3, "deletions": 0, "patch": "@@\n+DROP TABLE price_history;"},
-    {"filename": "docs/checkout.md", "status": "modified", "additions": 5, "deletions": 0, "patch": "@@\n+Prices are cached"}
+  "author": "dev2",
+  "base": "main",
+  "base_sha": "1a2b3c4d",
+  "head": "perf/price-cache",
+  "head_sha": "77aa10bc",
+  "labels": [
+    "performance"
   ],
-  "pruned": [{"filename": "package-lock.json", "reason": "lockfile", "dropped": true}],
-  "commits": [{"sha": "77aa10b", "message": "perf(checkout): cache computed prices"}],
+  "files": [
+    {
+      "filename": "src/checkout/pricing.py",
+      "status": "modified",
+      "additions": 13,
+      "deletions": 3,
+      "patch": "@@ -14,5 +14,9 @@\n import time\n from decimal import Decimal\n \n+# Cache computed cart prices to keep checkout under 100 ms.\n+CACHE_TTL = 300  # five minutes\n+_price_cache: dict[str, tuple[float, Decimal]] = {}\n+\n def catalog_price(sku: str) -> Decimal:\n     return _catalog[sku].price\n@@ -34,5 +38,9 @@\n def _cache_key(cart: Cart) -> str:\n     return \"|\".join(sorted(item.sku for item in cart.items))\n \n-def price_for(cart: Cart) -> Decimal:\n-    return _compute_total(cart)\n+def price_for(cart: Cart) -> Decimal:\n+    \"\"\"Total price, cached for CACHE_TTL seconds per cart signature.\"\"\"\n+    key = _cache_key(cart)\n+    cached = _price_cache.get(key)\n+    if cached and time.time() - cached[0] < CACHE_TTL:\n+        return cached[1]\n@@ -63,4 +71,6 @@\n def _compute_total(cart: Cart) -> Decimal:\n     subtotal = sum(item.price * item.qty for item in cart.items)\n     tax = subtotal * TAX_RATE\n-    return subtotal + tax\n+    total = _apply_discounts(cart, subtotal + tax)\n+    _price_cache[_cache_key(cart)] = (time.time(), total)\n+    return total"
+    },
+    {
+      "filename": "db/migrations/0042_drop_price_history.sql",
+      "status": "added",
+      "additions": 3,
+      "deletions": 0,
+      "patch": "@@ -0,0 +1,3 @@\n+DROP TABLE price_history;\n+-- price rows are recomputed on demand; history is no longer read\n+-- NOTE: no down migration"
+    },
+    {
+      "filename": "docs/checkout.md",
+      "status": "modified",
+      "additions": 2,
+      "deletions": 0,
+      "patch": "@@ -8,4 +8,6 @@\n ## Checkout flow\n \n Prices are computed when the cart page loads.\n+Prices are cached for five minutes per customer, keyed by customer id.\n+The cache is invalidated whenever a discount code is applied.\n Totals include tax at the configured rate."
+    }
+  ],
+  "pruned": [
+    {
+      "filename": "package-lock.json",
+      "reason": "lockfile",
+      "dropped": true
+    }
+  ],
+  "commits": [
+    {
+      "sha": "77aa10b",
+      "message": "perf(checkout): cache computed prices"
+    }
+  ],
   "threads": []
 }
