@@ -260,7 +260,8 @@ describe('App', () => {
     clickLangToggle()
 
     expect(container.textContent).toContain('Chặn merge (3)') // pr.blockingHeading, interpolated
-    expect(container.textContent).toContain('Cổng merge') // pr.tileGate
+    // pr.tileGate is the loanword 'Gate' now — assert a VI-only string instead
+    expect(container.textContent).toContain('Xem lý do') // ws.reasonsToggle
     expect(container.textContent).not.toContain('Blocking (3)')
 
     clickLangToggle()
@@ -274,7 +275,7 @@ describe('App', () => {
 
     clickLangToggle()
 
-    expect(container.textContent).toContain('Bộ quét đang theo dõi những gì')
+    expect(container.textContent).toContain('PR Sentinel đang theo dõi những gì')
     expect(container.textContent).toContain('Nhà cung cấp model')
     expect(container.textContent).not.toContain('What the poller watches')
 
