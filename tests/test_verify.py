@@ -356,6 +356,18 @@ def test_validate_keeps_a_collision_whose_pr_is_a_string():
     assert len(data["cross_pr"]) == 1
 
 
+def test_validate_drops_a_collision_whose_pr_is_not_a_number(capsys):
+    # Same unenforced-schema path as above, one step further: a container where
+    # an integer belongs is unhashable, so testing it against the scanned set
+    # raises TypeError — which run.main() does not catch, killing the review
+    # with a traceback instead of dropping one entry.
+    for bad in ([456], {"n": 456}, None, "not-a-number"):
+        data = validate_findings({**FINDINGS, "cross_pr": [_collision(pr=bad)]},
+                                 sibling_numbers={456})
+        assert data["cross_pr"] == []
+    assert "unknown PR" in capsys.readouterr().err
+
+
 def test_validate_without_a_sibling_set_checks_no_pr_numbers():
     # threads.py revalidates carried-forward findings and has no sibling list
     data = validate_findings({**FINDINGS, "cross_pr": [_collision(pr=999)]})

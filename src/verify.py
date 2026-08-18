@@ -322,7 +322,11 @@ def validate_findings(data: dict, sibling_numbers: set[int] | None = None) -> di
             try:
                 pr = int(c.get("pr"))
             except (TypeError, ValueError):
-                pr = c.get("pr")
+                # Not a number at all. It cannot name a scanned pull request,
+                # and keeping the raw value would put an unhashable list or
+                # dict into the membership test below — a TypeError nothing up
+                # the stack catches, killing the review over one bad entry.
+                pr = None
             if pr in sibling_numbers:
                 kept.append(c)
             else:
