@@ -26,6 +26,15 @@ def _bullet(text, max_len=100):
     return text.replace("\n", " ")
 
 
+def _confidence(value) -> str:
+    # A prompt-mode provider's JSON isn't schema-enforced server-side, so a
+    # non-numeric confidence is a real possibility — degrade rather than raise.
+    try:
+        return f"{float(value or 0):.2f}"
+    except (TypeError, ValueError):
+        return "?"
+
+
 def _overall_verdict(findings: dict) -> str:
     statuses = [c["status"] for c in findings.get("claims", [])]
     if not statuses:
@@ -109,6 +118,43 @@ def build_report(snapshot: dict, claims: list[dict], findings: dict,
            [[c.get("kind", "-"), _cell(c.get("path", "")), c["status"],
              _cell(c.get("detail", ""))] for c in findings.get("contracts", [])],
            empty="- No API, schema, type or proto contract touched.")
+
+    try:
+        siblings = json.loads((session_dir / "siblings.json").read_text())
+    except (OSError, json.JSONDecodeError):
+        siblings = None
+    have_siblings = isinstance(siblings, dict)
+
+    # siblings.json is a file on disk that can be missing, corrupt, or hand-edited —
+    # its absence means there's no "list below" to point at, so the empty text differs.
+    _table(lines, "Cross-PR collisions",
+           ["PR", "Status", "Symbol", "Paths", "Evidence", "Detail", "Confidence"],
+           [[_cell(f"#{c.get('pr', '?')}"), c.get("status", "-"),
+             _cell(c.get("symbol") or "-"),
+             _cell(", ".join(c.get("paths") or []) or "-"),
+             _cell(", ".join(c.get("evidence") or []) or "-"),
+             _cell(c.get("detail", "")),
+             _confidence(c.get("confidence"))]
+            for c in findings.get("cross_pr", [])],
+           empty=("- No collision found with the open pull requests listed below."
+                  if have_siblings else "- No cross-PR collision was reported."))
+
+    if have_siblings:
+        # Absence of siblings.json (older session, or the scan disabled) means the
+        # section doesn't appear at all — distinct from having scanned and found nothing.
+        _table(lines, "Parallel open pull requests",
+               ["PR", "Author", "Overlap", "Files", "Updated"],
+               [[_cell(f"[#{s.get('pr', '?')}]({s.get('url', '')})"),
+                 _cell(s.get("author", "")),
+                 "same file" if s.get("overlap") == "file" else "same module",
+                 _cell(", ".join(s.get("overlap_paths") or [])),
+                 _cell(s.get("updated_at", ""))]
+                for s in siblings.get("siblings") or []],
+               empty=f"- {_cell(siblings.get('skipped') or 'none found')}")
+        note = f"- Scanned {siblings.get('scanned', 0)} open pull request(s)."
+        if siblings.get("truncated"):
+            note += " The scan was capped, so this list may be incomplete."
+        lines += ["", note]
 
     test_rows = []
     for t in findings.get("tests", []):

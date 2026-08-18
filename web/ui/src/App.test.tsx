@@ -48,6 +48,11 @@ const PR = {
               callers: ['src/api/checkout.py:120'], risk: 'BROKEN', note: '' }],
   contracts: [{ kind: 'SCHEMA', path: 'db/migrations/0042.sql',
                 status: 'SCHEMA_MIGRATION_RISK', detail: 'destructive drop' }],
+  cross_pr: [{ pr: 456, status: 'SEMANTIC_CONFLICT', symbol: 'createInvoice',
+               paths: ['src/payment/invoice.py'],
+               evidence: ['src/payment/invoice.py:42'],
+               detail: 'renames a symbol this PR calls', confidence: 0.9 }],
+  siblings: { scanned: 12, truncated: false, skipped: '', siblings: [] },
   tests: [], threads: [], questions: [], answers: [], pruned: [],
   score: { gate: 'fail', verification_score: 0.333, business_risk: 'high',
            reasons: ['verification score 33% below 80%'] },
@@ -248,5 +253,14 @@ describe('App', () => {
     clickLangToggle()
     expect(container.textContent).toContain('What the poller watches')
     expect(container.querySelector('[aria-label="Mode for demo/app"]')).toBeTruthy()
+  })
+
+  it('switches to the cross-PR tab', async () => {
+    await render('/repos/demo/app/pr/8')
+    const tabs = Array.from(container.querySelectorAll('.tab')) as HTMLButtonElement[]
+    const crosspr = tabs.find((t) => t.textContent?.startsWith('Cross-PR'))!
+    await act(async () => { crosspr.click() })
+    expect(container.textContent).toContain('createInvoice')
+    expect(container.textContent).toContain('#456')
   })
 })

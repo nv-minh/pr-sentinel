@@ -16,7 +16,7 @@ STRINGS = Path(__file__).resolve().parents[1] / "web" / "ui" / "src" / "strings.
 # expectation: adding one to metrics.py means adding it here and translating it.
 METRIC_LABELS = {"files", "commits", "pruned", "claims", "docs", "callers",
                  "contracts", "gate", "verified", "answered", "open", "patches",
-                 "tests", "replies"}
+                 "tests", "replies", "scanned", "overlapping"}
 
 
 def _keys() -> set[str]:

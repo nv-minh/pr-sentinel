@@ -110,3 +110,76 @@ def test_score_fails_and_labels_on_breaking_change():
 def test_score_honours_a_custom_threshold():
     findings = {**EMPTY, "claims": [_claim("PASS", []), _claim("PASS", ["a.py:1"])]}
     assert score(findings, {"verification_score_min": 0.4})["gate"] == "pass"
+
+
+from score import CROSS_PR_MIN_CONFIDENCE, LABEL_CROSS_PR, cross_pr
+
+
+def _collision(status="SEMANTIC_CONFLICT", confidence=0.9, pr=456):
+    return {"pr": pr, "status": status, "symbol": "createInvoice",
+            "paths": ["src/payment/invoice.py"],
+            "evidence": ["src/payment/invoice.py:42"],
+            "detail": "renames a symbol this PR calls", "confidence": confidence}
+
+
+def test_a_confident_semantic_conflict_bumps_and_is_reported():
+    bumping, noted = cross_pr({"cross_pr": [_collision()]})
+    assert len(bumping) == 1 and noted == []
+
+
+def test_a_merge_order_risk_also_bumps():
+    bumping, _ = cross_pr({"cross_pr": [_collision(status="MERGE_ORDER_RISK")]})
+    assert len(bumping) == 1
+
+
+def test_an_unsure_collision_is_reported_without_bumping():
+    bumping, noted = cross_pr({"cross_pr": [_collision(confidence=0.3)]})
+    assert bumping == [] and len(noted) == 1
+
+
+def test_duplicate_work_is_reported_without_bumping():
+    bumping, noted = cross_pr({"cross_pr": [_collision(status="DUPLICATE_WORK")]})
+    assert bumping == [] and len(noted) == 1
+
+
+def test_no_conflict_is_neither():
+    assert cross_pr({"cross_pr": [_collision(status="NO_CONFLICT")]}) == ([], [])
+
+
+def test_a_missing_cross_pr_key_is_fine():
+    assert cross_pr(EMPTY) == ([], [])
+
+
+def test_a_collision_warns_labels_and_never_fails():
+    scores = score({**EMPTY, "cross_pr": [_collision()]})
+    assert scores["gate"] == "warn"
+    assert scores["business_risk"] == "medium"
+    assert LABEL_CROSS_PR in scores["labels"]
+    assert scores["cross_pr"] == ["#456 SEMANTIC_CONFLICT"]
+    assert any("cross-PR" in r for r in scores["reasons"])
+
+
+def test_an_unsure_collision_does_not_move_the_gate():
+    scores = score({**EMPTY, "cross_pr": [_collision(confidence=0.2)]})
+    assert scores["gate"] == "pass"
+    assert scores["business_risk"] == "none"
+    assert LABEL_CROSS_PR in scores["labels"]
+    assert any("cross-PR" in r for r in scores["reasons"])
+
+
+def test_a_collision_never_lowers_a_high_risk():
+    broken = {**EMPTY, "cross_pr": [_collision()],
+              "callers_outside_diff": [{"symbol": "f", "defined_at": "a.py:1",
+                                        "callers": ["b.py:2"], "risk": "BROKEN",
+                                        "note": ""}]}
+    scores = score(broken)
+    assert scores["business_risk"] == "high" and scores["gate"] == "fail"
+
+
+def test_the_confidence_threshold_is_documented_as_a_constant():
+    assert CROSS_PR_MIN_CONFIDENCE == 0.5
+
+
+def test_a_non_numeric_confidence_is_treated_as_unsure():
+    bumping, noted = cross_pr({"cross_pr": [_collision(confidence="high")]})
+    assert bumping == [] and len(noted) == 1

@@ -15,7 +15,7 @@ import type { Key } from '../strings'
 const PipelineGraph = lazy(() => import('../graph/PipelineGraph'))
 
 type TabKey =
-  | 'claims' | 'docs' | 'impact' | 'callers' | 'contracts' | 'tests'
+  | 'claims' | 'docs' | 'impact' | 'callers' | 'contracts' | 'crosspr' | 'tests'
   | 'threads' | 'confirm' | 'context'
 
 const TABS: { key: TabKey; label: Key }[] = [
@@ -24,6 +24,7 @@ const TABS: { key: TabKey; label: Key }[] = [
   { key: 'impact', label: 'pr.tabImpact' },
   { key: 'callers', label: 'pr.tabCallers' },
   { key: 'contracts', label: 'pr.tabContracts' },
+  { key: 'crosspr', label: 'pr.tabCrossPr' },
   { key: 'tests', label: 'pr.tabTests' },
   { key: 'threads', label: 'pr.tabThreads' },
   { key: 'confirm', label: 'pr.tabConfirm' },
@@ -136,6 +137,7 @@ export function PrDetail({ owner, repo, pr }: { owner: string; repo: string; pr:
     impact: data.impact?.length ?? 0,
     callers: data.callers?.length ?? 0,
     contracts: data.contracts?.length ?? 0,
+    crosspr: data.cross_pr?.length ?? 0,
     tests: data.tests?.length ?? 0,
     threads: data.threads?.length ?? 0,
     confirm: data.answers?.length ?? 0,
@@ -306,6 +308,20 @@ export function PrDetail({ owner, repo, pr }: { owner: string; repo: string; pr:
                        meta={c.detail} right={c.kind} />
                 ))
               : <Empty>{t('pr.emptyContracts')}</Empty>)}
+
+            {tab === 'crosspr' && (data.cross_pr?.length
+              ? data.cross_pr.map((c, i) => (
+                  <Row key={i} status={c.status}
+                       title={<>{c.symbol || `#${c.pr}`} <StatusWord status={c.status} /></>}
+                       meta={<><Citations items={c.evidence} /> {c.detail}</>}
+                       right={`#${c.pr}`} />
+                ))
+              : <Empty>
+                  {data.siblings?.siblings?.length
+                    ? t('pr.emptyCrossPrNoCollision')
+                    : data.siblings?.skipped
+                      || t('pr.emptyCrossPrNotScanned')}
+                </Empty>)}
 
             {tab === 'tests' && (data.tests?.length
               ? data.tests.map((test, i) => (

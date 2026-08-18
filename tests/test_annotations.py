@@ -185,3 +185,44 @@ def test_the_cap_is_filled_in_list_order():
     inline, leftover = split([first, second], index, cap=1)
     assert inline[0]["body"] == "first"
     assert leftover[0]["body"] == "second"
+
+
+def _collision(status="SEMANTIC_CONFLICT", evidence=("src/payment/invoice.py:42",)):
+    return {"pr": 456, "status": status, "symbol": "createInvoice",
+            "paths": ["src/payment/invoice.py"], "evidence": list(evidence),
+            "detail": "PR #456 renames the parameter this call passes",
+            "confidence": 0.9}
+
+
+def test_a_collision_anchors_on_its_evidence_line():
+    out = candidates({"cross_pr": [_collision()]})
+    assert len(out) == 1
+    assert out[0]["path"] == "src/payment/invoice.py"
+    assert out[0]["line"] == 42
+    assert "cross-PR collision" in out[0]["body"]
+    assert "#456" in out[0]["body"]
+    assert "createInvoice" in out[0]["body"]
+
+
+def test_a_collision_without_a_line_still_reaches_the_summary():
+    out = candidates({"cross_pr": [_collision(evidence=("src/payment/invoice.py",))]})
+    assert out[0]["path"] == "src/payment/invoice.py"
+    assert out[0]["line"] is None
+
+
+def test_a_no_conflict_verdict_is_not_annotated():
+    assert candidates({"cross_pr": [_collision(status="NO_CONFLICT")]}) == []
+
+
+def test_collisions_are_annotated_after_contracts_and_before_tests():
+    findings = {
+        "cross_pr": [_collision()],
+        "contracts": [{"kind": "API", "path": "openapi.yml",
+                       "status": "BREAKING_API_CHANGE", "detail": "d"}],
+        "tests": [{"target": "tests/test_a.py:test_x", "assertion_quality": "WEAK",
+                   "uncovered_edge_cases": [], "note": "n"}],
+    }
+    bodies = [c["body"] for c in candidates(findings)]
+    assert "BREAKING_API_CHANGE" in bodies[0]
+    assert "cross-PR collision" in bodies[1]
+    assert "Test coverage" in bodies[2]

@@ -312,3 +312,38 @@ def test_set_language_leaves_an_invalid_file_byte_identical(tmp_path):
     with pytest.raises(ValueError, match="max_inline_comments"):
         set_language(path, "vi")
     assert path.read_text() == text
+
+
+def test_siblings_defaults_are_on_with_a_cap(tmp_path):
+    cfg = load_config(_write(tmp_path / "c.yml", "repos: {}\n"))
+    assert cfg["siblings"] == {"enabled": True, "max_siblings": 3,
+                               "include_drafts": False}
+
+
+def test_siblings_block_is_merged_over_the_defaults(tmp_path):
+    cfg = load_config(_write(tmp_path / "c.yml",
+                             "repos: {}\nsiblings:\n  max_siblings: 1\n"))
+    assert cfg["siblings"] == {"enabled": True, "max_siblings": 1,
+                               "include_drafts": False}
+
+
+def test_siblings_enabled_must_be_a_bool(tmp_path):
+    path = _write(tmp_path / "c.yml", "repos: {}\nsiblings:\n  enabled: 3\n")
+    with pytest.raises(ValueError, match="siblings.enabled"):
+        load_config(path)
+
+
+def test_siblings_include_drafts_must_be_a_bool(tmp_path):
+    path = _write(tmp_path / "c.yml",
+                  "repos: {}\nsiblings:\n  include_drafts: 3\n")
+    with pytest.raises(ValueError, match="siblings.include_drafts"):
+        load_config(path)
+
+
+def test_siblings_max_must_be_a_positive_int(tmp_path):
+    # bool before int: `true` would otherwise pass as a cap of 1
+    for bad in ("0", "-1", "true", "'3'"):
+        path = _write(tmp_path / "c.yml",
+                      f"repos: {{}}\nsiblings:\n  max_siblings: {bad}\n")
+        with pytest.raises(ValueError, match="siblings.max_siblings"):
+            load_config(path)

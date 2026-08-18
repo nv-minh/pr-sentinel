@@ -38,6 +38,14 @@ max_budget_usd: null        # e.g. 2.0 to hard-stop an expensive verify run
 poc_tests: true             # a failing test for each BROKEN finding (only runs when
                             # a review finds one, so a clean PR pays nothing)
 max_inline_comments: 20     # per review; anything past this goes in the summary
+# Cross-PR sibling scan: before the deep dive, look for other OPEN pull requests
+# changing the same files (or the same sensitive/contract directory) and give the
+# reviewer their diffs, so a semantic conflict is caught while both are still
+# open. A collision can take the gate to `warn`; it never fails a review.
+siblings:
+  enabled: true
+  max_siblings: 3           # how many overlapping PRs get their diff loaded
+  include_drafts: false     # draft PRs are usually not about to merge
 
 # Actions that write outside the review comment — opt-in on purpose
 auto_describe: false        # rewrite an empty PR body instead of proposing one

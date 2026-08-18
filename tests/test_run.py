@@ -82,7 +82,7 @@ def _patch_pipeline(monkeypatch, tmp_path, verify_calls, setup_calls):
         setup_calls.append(1)
 
     def fake_run_verify(cfg, workspace, session_dir, snapshot, claims, ticket=None,
-                        runner=None):
+                        siblings=None, runner=None):
         # the real run_verify persists findings.json — the resume logic depends on it
         verify_calls.append(1)
         session_dir.mkdir(parents=True, exist_ok=True)
@@ -192,7 +192,7 @@ def test_reply_mode_falls_back_to_a_full_review(tmp_path, monkeypatch):
     tickets_seen = []
 
     def capturing_verify(cfg, workspace, session_dir, snapshot, claims,
-                         ticket=None, runner=None):
+                         ticket=None, siblings=None, runner=None):
         tickets_seen.append(ticket)
         verify_calls.append(1)
         session_dir.mkdir(parents=True, exist_ok=True)
@@ -301,7 +301,7 @@ def test_the_ticket_reaches_verify(tmp_path, monkeypatch):
         return fetched
 
     def capturing_verify(cfg, workspace, session_dir, snapshot, claims,
-                         ticket=None, runner=None):
+                         ticket=None, siblings=None, runner=None):
         seen["ticket"] = ticket
         session_dir.mkdir(parents=True, exist_ok=True)
         (session_dir / "findings.json").write_text(json.dumps(FINDINGS))
@@ -333,7 +333,8 @@ def _snapshot_with(tmp_path, files):
 
 
 def _capture_cfg(seen):
-    def fake(cfg, workspace, session_dir, snapshot, claims, ticket=None, runner=None):
+    def fake(cfg, workspace, session_dir, snapshot, claims, ticket=None, siblings=None,
+            runner=None):
         seen["cfg"] = dict(cfg)
         session_dir.mkdir(parents=True, exist_ok=True)
         (session_dir / "findings.json").write_text(json.dumps(FINDINGS))
@@ -408,7 +409,8 @@ def test_a_broken_finding_triggers_the_poc_pass(tmp_path, monkeypatch):
          "note": "n"}]}
     _patch_pipeline(monkeypatch, tmp_path, [], [])
 
-    def fake_verify(cfg, workspace, session_dir, snapshot, claims, ticket=None, runner=None):
+    def fake_verify(cfg, workspace, session_dir, snapshot, claims, ticket=None,
+                    siblings=None, runner=None):
         session_dir.mkdir(parents=True, exist_ok=True)
         (session_dir / "findings.json").write_text(json.dumps(broken_findings))
         return dict(broken_findings)
@@ -429,7 +431,8 @@ def test_the_generated_test_appears_once_in_the_comment(tmp_path, monkeypatch):
          "note": "n"}]}
     _patch_pipeline(monkeypatch, tmp_path, [], [])
 
-    def fake_verify(cfg, workspace, session_dir, snapshot, claims, ticket=None, runner=None):
+    def fake_verify(cfg, workspace, session_dir, snapshot, claims, ticket=None,
+                    siblings=None, runner=None):
         session_dir.mkdir(parents=True, exist_ok=True)
         (session_dir / "findings.json").write_text(json.dumps(broken_findings))
         return dict(broken_findings)
@@ -475,3 +478,66 @@ def test_findings_win_the_inline_cap_over_doc_suggestions(tmp_path, monkeypatch)
     assert main(["demo/app", "7", "--skip-human"]) == 0
     assert [c["body"] for c in posted[0]["comments"]] == ["BREAKING_API_CHANGE"]
     assert "doc suggestion" in bodies[0]
+
+
+def _fake_siblings(calls):
+    def fetch(snapshot, session_dir, cfg, gate=None, gh=None):
+        calls.append(cfg)
+        session_dir.mkdir(parents=True, exist_ok=True)
+        data = {"scanned": 3, "truncated": False, "skipped": "",
+                "siblings": [{"pr": 456, "title": "t", "author": "b", "url": "u",
+                              "base": "main", "head": "h", "updated_at": "now",
+                              "overlap": "file", "overlap_paths": ["a.py"],
+                              "files": [], "pruned": []}]}
+        (session_dir / "siblings.json").write_text(json.dumps(data))
+        return data
+    return fetch
+
+
+def test_the_sibling_scan_runs_once_and_is_then_cached(tmp_path, monkeypatch):
+    calls = []
+    _patch_pipeline(monkeypatch, tmp_path, [], [])
+    monkeypatch.setattr("siblings.fetch_siblings", _fake_siblings(calls))
+
+    assert main(["demo/app", "7", "--no-post", "--skip-human"]) == 0
+    assert len(calls) == 1
+    assert (_session(tmp_path) / "siblings.json").exists()
+
+    assert main(["demo/app", "7", "--no-post", "--skip-human"]) == 0
+    assert len(calls) == 1                       # artifact on disk, no second scan
+
+    assert main(["demo/app", "7", "--no-post", "--skip-human", "--force"]) == 0
+    assert len(calls) == 2
+
+
+def test_the_sibling_scan_is_skipped_when_disabled(tmp_path, monkeypatch):
+    calls = []
+    _patch_pipeline(monkeypatch, tmp_path, [], [])
+    monkeypatch.setattr("siblings.fetch_siblings", _fake_siblings(calls))
+    real_cfg = run.load_review_config
+    monkeypatch.setattr("run.load_review_config",
+                        lambda *a, **kw: {**real_cfg(),
+                                          "siblings": {"enabled": False,
+                                                       "max_siblings": 3,
+                                                       "include_drafts": False}})
+
+    assert main(["demo/app", "7", "--no-post", "--skip-human"]) == 0
+    assert calls == []
+    assert not (_session(tmp_path) / "siblings.json").exists()
+
+
+def test_the_siblings_reach_verify(tmp_path, monkeypatch):
+    seen = {}
+    _patch_pipeline(monkeypatch, tmp_path, [], [])
+    monkeypatch.setattr("siblings.fetch_siblings", _fake_siblings([]))
+
+    def capturing_verify(cfg, workspace, session_dir, snapshot, claims,
+                        ticket=None, siblings=None, runner=None):
+        seen["siblings"] = siblings
+        session_dir.mkdir(parents=True, exist_ok=True)
+        (session_dir / "findings.json").write_text(json.dumps(FINDINGS))
+        return dict(FINDINGS)
+
+    monkeypatch.setattr("verify.run_verify", capturing_verify)
+    assert main(["demo/app", "7", "--no-post", "--skip-human"]) == 0
+    assert seen["siblings"]["siblings"][0]["pr"] == 456

@@ -120,6 +120,8 @@ def pr_record(session_root: Path, owner: str, repo: str, n: int) -> dict | None:
                          if t.get("assertion_quality") in ("WEAK", "MISSING")),
         "callers_at_risk": sum(1 for c in callers
                                if c.get("risk") in ("NEEDS_UPDATE", "BROKEN")),
+        "cross_pr": sum(1 for c in findings.get("cross_pr") or []
+                        if c.get("status") not in (None, "NO_CONFLICT")),
         "claims_total": len(claims),
         "bugs": sum(1 for c in claims
                     if c.get("status") in ("FAIL", "PARTIAL"))
@@ -219,6 +221,8 @@ def pr_detail(session_root: Path, owner: str, repo: str, n: int) -> dict | None:
         "impact": findings.get("impact", []),
         "callers": findings.get("callers_outside_diff", []),
         "contracts": findings.get("contracts", []),
+        "cross_pr": findings.get("cross_pr", []),
+        "siblings": _read_json(session_dir / "siblings.json") or {},
         "tests": findings.get("tests", []),
         "threads": findings.get("threads", []),
         "questions": findings.get("unresolved_questions", []),
@@ -354,6 +358,7 @@ def review_process_info(session_dir: Path) -> dict | None:
 # the reply loop only runs under `--reply`.
 PHASES = (
     {"id": "snapshot", "label": "Snapshot", "artifact": "snapshot.json"},
+    {"id": "siblings", "label": "Sibling scan", "artifact": "siblings.json"},
     {"id": "describe", "label": "Describe", "artifact": "description.json"},
     {"id": "claims", "label": "Claims", "artifact": "claims.json"},
     {"id": "followup", "label": "Replies", "artifact": "replies.json"},
@@ -366,15 +371,16 @@ PHASES = (
 )
 
 EDGES = (
-    ("snapshot", "describe"), ("describe", "claims"), ("claims", "verify"),
+    ("snapshot", "describe"), ("snapshot", "siblings"), ("siblings", "verify"),
+    ("describe", "claims"), ("claims", "verify"),
     ("followup", "verify"), ("verify", "score"), ("verify", "remediate"),
     ("verify", "poc"), ("score", "ask"), ("ask", "report"),
     ("remediate", "report"), ("poc", "report"),
 )
 
 # The path a run actually walks, used to decide which node is the live one.
-ORDER = ("snapshot", "describe", "claims", "verify", "score", "ask", "remediate",
-         "poc", "report")
+ORDER = ("snapshot", "siblings", "describe", "claims", "verify", "score", "ask",
+         "remediate", "poc", "report")
 
 
 def _phase_skipped(phase_id: str, snapshot: dict, findings: dict) -> bool:
@@ -387,6 +393,10 @@ def _phase_skipped(phase_id: str, snapshot: dict, findings: dict) -> bool:
         return not broken(findings)
     if phase_id == "followup":
         return True  # only ever runs on --reply; its artifact is the only proof
+    if phase_id == "siblings":
+        # No artifact means the scan is off or the session predates it, never
+        # "not yet": the phase runs before anything the graph shows after it.
+        return True
     return False
 
 
@@ -397,6 +407,11 @@ def _phase_metrics(phase_id: str, session_dir: Path, snapshot: dict,
         return [{"label": "files", "value": len(snapshot.get("files") or [])},
                 {"label": "commits", "value": len(snapshot.get("commits") or [])},
                 {"label": "pruned", "value": len(snapshot.get("pruned") or [])}]
+    if phase_id == "siblings":
+        data = _read_json(session_dir / "siblings.json") or {}
+        return [{"label": "scanned", "value": data.get("scanned", 0)},
+                {"label": "overlapping",
+                 "value": len(data.get("siblings") or [])}]
     if phase_id == "claims":
         return [{"label": "claims",
                  "value": len(_read_json_list(session_dir / "claims.json"))}]

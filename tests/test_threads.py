@@ -235,3 +235,11 @@ def test_run_followup_forwards_the_language(tmp_path):
                  [{"source": "conversation", "author": "dev1", "body": "ok",
                    "path": None}], [], runner=runner)
     assert "Vietnamese" in captured["prompt"]
+
+
+def test_the_followup_prompt_tells_the_agent_to_keep_cross_pr_verdicts():
+    prompt = build_followup_prompt(
+        [{"source": "conversation", "author": "a", "body": "fixed", "path": None}],
+        [])
+    assert "cross_pr verdicts were judged against other open pull requests" in prompt
+    assert "Carry them over unchanged" in prompt

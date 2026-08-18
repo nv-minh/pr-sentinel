@@ -176,3 +176,69 @@ def test_report_names_the_requirement_ticket(tmp_path):
 def test_report_has_no_requirement_line_without_ticket_json(tmp_path):
     report = build_report(SNAPSHOT, CLAIMS, FINDINGS, [], tmp_path)
     assert "Requirement:" not in report
+
+
+COLLISION = {"pr": 456, "status": "SEMANTIC_CONFLICT", "symbol": "createInvoice",
+             "paths": ["src/payment/invoice.py"],
+             "evidence": ["src/payment/invoice.py:42"],
+             "detail": "PR #456: renames the parameter this call passes",
+             "confidence": 0.9}
+
+SIBLINGS_JSON = {
+    "scanned": 12, "truncated": False, "skipped": "",
+    "siblings": [{"pr": 456, "title": "Split invoice creation", "author": "dev_b",
+                  "url": "https://github.com/demo/app/pull/456", "base": "main",
+                  "head": "feat/x", "updated_at": "2026-08-16T09:00:00Z",
+                  "overlap": "file", "overlap_paths": ["src/payment/invoice.py"],
+                  "files": [], "pruned": []}]}
+
+
+def test_the_report_lists_collisions_and_the_prs_they_concern(tmp_path):
+    (tmp_path / "siblings.json").write_text(json.dumps(SIBLINGS_JSON))
+    report = build_report(SNAPSHOT, [], {**FINDINGS, "cross_pr": [COLLISION]},
+                          [], tmp_path)
+    assert "## Cross-PR collisions" in report
+    assert "#456" in report
+    assert "SEMANTIC_CONFLICT" in report
+    assert "createInvoice" in report
+    assert "## Parallel open pull requests" in report
+    assert "https://github.com/demo/app/pull/456" in report
+    assert "Scanned 12 open pull request(s)" in report
+
+
+def test_a_hostile_pr_value_does_not_split_the_collisions_table(tmp_path):
+    # `pr` is model-supplied and not schema-enforced under a prompt-mode
+    # provider; a `|` in it must not split the markdown row the way the
+    # sibling-link cell is already protected against.
+    hostile = {**COLLISION, "pr": "456|evil"}
+    (tmp_path / "siblings.json").write_text(json.dumps(SIBLINGS_JSON))
+    report = build_report(SNAPSHOT, [], {**FINDINGS, "cross_pr": [hostile]},
+                          [], tmp_path)
+    assert "#456\\|evil" in report
+
+
+def test_the_report_says_it_looked_and_found_nothing(tmp_path):
+    (tmp_path / "siblings.json").write_text(json.dumps(SIBLINGS_JSON))
+    report = build_report(SNAPSHOT, [], FINDINGS, [], tmp_path)
+    assert "No collision found with the open pull requests listed below." in report
+
+
+def test_a_skipped_scan_shows_its_reason(tmp_path):
+    (tmp_path / "siblings.json").write_text(json.dumps(
+        {"scanned": 4, "truncated": False, "siblings": [],
+         "skipped": "no other open pull request changes the same files"}))
+    report = build_report(SNAPSHOT, [], FINDINGS, [], tmp_path)
+    assert "no other open pull request changes the same files" in report
+
+
+def test_a_truncated_scan_says_so(tmp_path):
+    (tmp_path / "siblings.json").write_text(json.dumps(
+        {**SIBLINGS_JSON, "truncated": True}))
+    report = build_report(SNAPSHOT, [], FINDINGS, [], tmp_path)
+    assert "capped" in report
+
+
+def test_a_report_without_a_sibling_scan_omits_the_section(tmp_path):
+    report = build_report(SNAPSHOT, [], FINDINGS, [], tmp_path)
+    assert "## Parallel open pull requests" not in report
+    assert "listed below" not in report

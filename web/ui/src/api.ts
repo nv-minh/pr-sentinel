@@ -22,6 +22,7 @@ export interface PrRecord {
   rounds: number
   updated_at: string
   failed: boolean
+  cross_pr?: number
 }
 
 export interface RepoRecord {
@@ -82,6 +83,22 @@ export interface PrDetail {
   }[]
   callers?: { symbol: string; defined_at: string; callers: string[]; risk: string; note: string }[]
   contracts?: { kind: string; path: string; status: string; detail: string }[]
+  cross_pr?: {
+    pr: number
+    status: string
+    symbol: string
+    paths: string[]
+    evidence: string[]
+    detail: string
+    confidence: number
+  }[]
+  siblings?: {
+    scanned?: number
+    truncated?: boolean
+    skipped?: string
+    siblings?: { pr: number; title: string; author: string; url: string
+                 overlap: string; overlap_paths: string[]; updated_at: string }[]
+  }
   tests?: {
     target: string
     assertion_quality: string
