@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { Mark, StatusWord } from '../components'
 import { useT } from '../i18n'
 import type { Key } from '../strings'
@@ -53,7 +54,69 @@ export function FindingCard({ finding, selected, renderChips, children }: {
         </p>
       )}
       <div className="mt-2 flex flex-wrap items-center gap-1">{renderChips(finding)}</div>
+      {finding.attachments?.poc?.map((poc, i) => (
+        <Attachment key={`poc-${i}`} heading={t('extras.pocHeading')}
+                    badge={poc.framework} copyText={poc.test_code}>
+          <pre className="overflow-x-auto rounded border border-hairline bg-paper px-3 py-2 font-mono text-[11.5px] whitespace-pre-wrap">
+            {poc.test_code}
+          </pre>
+          <p className="mt-1 text-[12.5px] text-ink-muted">
+            <span className="font-mono text-[10.5px] uppercase tracking-[0.08em]">{t('extras.pocWhy')}:</span>{' '}
+            {poc.why_it_fails}
+          </p>
+        </Attachment>
+      ))}
+      {finding.attachments?.patches?.map((patch, i) => (
+        <Attachment key={`patch-${i}`} heading={t('extras.patchHeading')}
+                    badge={patch.path} copyText={patch.new_snippet}>
+          <div className="grid gap-1.5">
+            <div className="border-l-2 border-fail">
+              <span className="ml-2 font-mono text-[10.5px] uppercase tracking-[0.08em] text-ink-muted">{t('extras.patchOld')}</span>
+              <pre className="ml-2 overflow-x-auto font-mono text-[11.5px] whitespace-pre-wrap text-ink-muted">{patch.old_snippet}</pre>
+            </div>
+            <div className="border-l-2 border-pass">
+              <span className="ml-2 font-mono text-[10.5px] uppercase tracking-[0.08em] text-ink-muted">{t('extras.patchNew')}</span>
+              <pre className="ml-2 overflow-x-auto font-mono text-[11.5px] whitespace-pre-wrap">{patch.new_snippet}</pre>
+            </div>
+          </div>
+          {patch.why && <p className="mt-1 text-[12.5px] text-ink-muted">{patch.why}</p>}
+        </Attachment>
+      ))}
       {children}
     </article>
+  )
+}
+
+/** A generated artifact riding on a finding: a PoC test or a doc fix, with a
+ * copy button so the author can act on it — never applied automatically. */
+function Attachment({ heading, badge, copyText, children }: {
+  heading: string
+  badge?: string
+  copyText: string
+  children: React.ReactNode
+}) {
+  const t = useT()
+  const [copied, setCopied] = useState(false)
+  return (
+    <div className="mt-2.5 rounded-sm border border-hairline bg-surface px-3 py-2.5">
+      <div className="mb-1.5 flex items-baseline gap-2">
+        <span className="font-mono text-[10.5px] font-bold uppercase tracking-[0.1em] text-ink-muted">
+          {heading}
+        </span>
+        {badge && <span className="font-mono text-[10.5px] text-ink-muted">{badge}</span>}
+        <button
+          className="ml-auto rounded-sm border border-hairline-strong px-1.5 font-mono text-[10.5px] uppercase tracking-[0.08em] text-ink-muted hover:text-ink"
+          onClick={() => {
+            void navigator.clipboard?.writeText(copyText)
+            setCopied(true)
+            setTimeout(() => setCopied(false), 2000)
+          }}
+        >
+          {copied ? t('extras.copied') : t('extras.copy')}
+        </button>
+        <span aria-live="polite" className="sr-only">{copied ? t('extras.copied') : ''}</span>
+      </div>
+      {children}
+    </div>
   )
 }

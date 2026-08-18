@@ -5,6 +5,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { api } from '../api'
 import { useApi } from '../hooks/useApi'
 import { useT } from '../i18n'
+import { Markdown } from './Markdown'
 import { OverviewTab } from './OverviewTab'
 import { RunTab } from './RunTab'
 import type { WorkspaceState } from './useWorkspaceState'
@@ -16,11 +17,7 @@ function ReportTab({ owner, repo, pr }: { owner: string; repo: string; pr: numbe
   const report = useApi((signal) => api.report(owner, repo, pr, signal), [owner, repo, pr])
   if (report.loading) return <Loading label={t('report.loading')} />
   if (report.error || !report.data) return <p className="text-[13px] text-ink-muted">{t('report.empty')}</p>
-  return (
-    <pre className="overflow-x-auto rounded border border-hairline bg-surface px-3.5 py-3 font-mono text-xs whitespace-pre-wrap text-ink">
-      {report.data.markdown}
-    </pre>
-  )
+  return <Markdown source={report.data.markdown} />
 }
 
 export function RightPane({ owner, repo, pr, data, extras, pipeline, status, running,

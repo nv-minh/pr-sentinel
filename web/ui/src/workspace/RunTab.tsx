@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 import { api } from '../api'
 import type { PrDetail, ReviewStatus } from '../api'
 import { Empty, Eyebrow } from '../components'
+import { useApi } from '../hooks/useApi'
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table'
@@ -64,6 +65,8 @@ export function RunTab({ owner, repo, pr, data, status, running }: {
         </p>
       )}
 
+      <Trace owner={owner} repo={repo} pr={pr} />
+
       <Eyebrow>{t('run.costHeading')}</Eyebrow>
       {data.usage?.length ? (
         <div className="overflow-x-auto">
@@ -96,5 +99,40 @@ export function RunTab({ owner, repo, pr, data, status, running }: {
         <Empty>{t('run.idle')}</Empty>
       )}
     </div>
+  )
+}
+
+/** The agent's tool-call timeline, phase by phase — what the reviewer read,
+ * grepped and ran before concluding. Only verify/followup mirror transcripts,
+ * and old sessions carry none, so absence is normal. */
+function Trace({ owner, repo, pr }: { owner: string; repo: string; pr: number }) {
+  const t = useT()
+  const trace = useApi((signal) => api.prTrace(owner, repo, pr, signal), [owner, repo, pr])
+  return (
+    <>
+      <Eyebrow>{t('trace.heading')}</Eyebrow>
+      {!trace.data?.length ? (
+        <p className="text-[12.5px] text-ink-muted">{t('trace.empty')}</p>
+      ) : (
+        trace.data.map((phase) => (
+          <section key={phase.session_id} className="mb-2">
+            <h3 className="mb-1 font-mono text-[10.5px] uppercase tracking-[0.1em] text-ink-muted">
+              {phase.phase}
+            </h3>
+            <ol className="grid gap-0.5 border-l border-hairline pl-3">
+              {phase.events.map((event, i) => (
+                <li key={i} className={`text-[12px] leading-relaxed ${
+                  event.type === 'tool' ? 'font-mono text-ink' : 'text-ink-muted'
+                }`}>
+                  {event.type === 'tool'
+                    ? <><span aria-hidden="true">⚙ </span>{event.tool} — {event.summary}</>
+                    : event.summary}
+                </li>
+              ))}
+            </ol>
+          </section>
+        ))
+      )}
+    </>
   )
 }

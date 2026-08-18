@@ -74,8 +74,8 @@ function stubFetch(overrides: Record<string, unknown> = {}) {
       url.includes('/review/status') ? statusBody
       : url.includes('/review/log') ? { log: 'phase: verify', running: statusBody.running }
       : url.endsWith('/files') ? (overrides.files ?? FILES)
-      : url.endsWith('/extras') ? EXTRAS
-      : url.endsWith('/trace') ? []
+      : url.endsWith('/extras') ? (overrides.extras ?? EXTRAS)
+      : url.endsWith('/trace') ? (overrides.trace ?? [])
       : url.endsWith('/graph') ? GRAPH
       : url.endsWith('/report') ? { markdown: '# Review PR #8' }
       : url.endsWith('/pr/8') ? (overrides.pr ?? PR)
@@ -187,6 +187,49 @@ it('navigates to the file when a chip points inside the diff', async () => {
     .find((b) => b.textContent?.includes('src/checkout/pricing.py:41')) as HTMLButtonElement
   await act(async () => { chip.click() })
   expect(window.location.search).toContain('file=src%2Fcheckout%2Fpricing.py')
+})
+
+it('attaches the poc test to its broken finding with a copy button', async () => {
+  stubFetch({ extras: { ticket: null, patches: null, neutralized: null, description: null,
+    poc: [{ target: 'tests/test_pricing.py', framework: 'pytest',
+            test_code: 'def test_stale_price(): ...', why_it_fails: 'serves a stale total' }] } })
+  const el = await mount(<App />)
+  const card = el.querySelector('#finding-caller-0') as HTMLElement
+  expect(card.textContent).toContain('def test_stale_price')
+  expect(card.textContent).toContain('serves a stale total')
+  const copy = Array.from(card.querySelectorAll('button'))
+    .find((b) => b.textContent === 'Copy')
+  expect(copy).toBeTruthy()
+})
+
+it('renders the report tab through the markdown renderer', async () => {
+  stubFetch()
+  const el = await mount(<App />)
+  const tab = Array.from(el.querySelectorAll('[role="tab"]'))
+    .find((b) => b.textContent === 'Report') as HTMLButtonElement
+  await act(async () => {
+    tab.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }))
+    tab.click()
+  })
+  await flush()
+  expect(el.querySelector('[data-report] h2')?.textContent).toContain('Review PR #8')
+})
+
+it('shows the agent trace on the run tab when transcripts exist', async () => {
+  stubFetch({ trace: [{ phase: 'verify', session_id: 'v1', events: [
+    { type: 'text', summary: 'Reading the pricing module' },
+    { type: 'tool', tool: 'Read', summary: 'src/checkout/pricing.py' },
+  ] }] })
+  const el = await mount(<App />)
+  const tab = Array.from(el.querySelectorAll('[role="tab"]'))
+    .find((b) => b.textContent === 'Run') as HTMLButtonElement
+  await act(async () => {
+    tab.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }))
+    tab.click()
+  })
+  await flush()
+  expect(el.textContent).toContain('Reading the pricing module')
+  expect(el.textContent).toContain('Read — src/checkout/pricing.py')
 })
 
 it('polls status only while a review runs and stops when it ends', async () => {
