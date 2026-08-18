@@ -232,6 +232,56 @@ it('shows the agent trace on the run tab when transcripts exist', async () => {
   expect(el.textContent).toContain('Read — src/checkout/pricing.py')
 })
 
+it('focuses the deep-linked finding on load', async () => {
+  stubFetch()
+  window.history.pushState({}, '', '/repos/demo/app/pr/8?finding=contract-0')
+  const el = await mount(<App />)
+  const card = el.querySelector('#finding-contract-0') as HTMLElement
+  expect(card.getAttribute('data-selected')).toBe('true')
+  expect(document.activeElement).toBe(card)
+})
+
+it('walks findings with j/k in document order and clears with Escape', async () => {
+  stubFetch()
+  const el = await mount(<App />)
+  const press = async (key: string) => {
+    await act(async () => {
+      document.body.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }))
+    })
+  }
+  await press('j')
+  expect(window.location.search).toContain('finding=caller-0')
+  await press('j')
+  expect(window.location.search).toContain('finding=claim-0')
+  await press('k')
+  expect(window.location.search).toContain('finding=caller-0')
+  await press('Escape')
+  expect(window.location.search).not.toContain('finding=')
+  expect(el).toBeTruthy()
+})
+
+it('v marks the selected finding\'s file as viewed and persists it', async () => {
+  stubFetch()
+  window.history.pushState({}, '', '/repos/demo/app/pr/8?finding=claim-0')
+  await mount(<App />)
+  await act(async () => {
+    document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'v', bubbles: true }))
+  })
+  const stored = JSON.parse(localStorage.getItem('pr-sentinel-viewed:demo/app/8') ?? '{}')
+  expect(stored.head_sha).toBe('h1')
+  expect(stored.files).toContain('src/checkout/pricing.py')
+})
+
+it('ignores shortcuts typed into form controls', async () => {
+  stubFetch()
+  const el = await mount(<App />)
+  const checkbox = el.querySelector('input[type="checkbox"]') as HTMLInputElement
+  await act(async () => {
+    checkbox.dispatchEvent(new KeyboardEvent('keydown', { key: 'j', bubbles: true }))
+  })
+  expect(window.location.search).not.toContain('finding=')
+})
+
 it('polls status only while a review runs and stops when it ends', async () => {
   vi.useFakeTimers()
   stubFetch()

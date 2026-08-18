@@ -100,6 +100,70 @@ export function Workspace({ owner, repo, pr }: { owner: string; repo: string; pr
     })
   }
 
+  // Derived review model — safe before the early returns: empty until the
+  // payloads land, so every hook below runs unconditionally.
+  const data = detail.data
+  const reviewedData = data && data.reviewed ? data : null
+  const fileList = files.data?.files ?? []
+  const findings = reviewedData
+    ? attachExtras(collectFindings(reviewedData, files.data?.threads ?? []),
+                   extras.data ?? null)
+    : []
+  const plan = planAnchors(findings, fileList)
+
+  // Deep links: when ?finding= changes (or the cards finally exist), move
+  // focus to the card so keyboard users land where the link points.
+  const findingCount = detail.data && files.data !== undefined ? 1 : 0
+  useEffect(() => {
+    if (!state.finding) return
+    const el = document.getElementById(`finding-${state.finding}`)
+    if (el) {
+      el.focus({ preventScroll: true })
+      el.scrollIntoView({ block: 'center' })
+    }
+  }, [state.finding, findingCount])
+
+  // j/k walk the findings in document order, v marks the selected file
+  // viewed, Escape clears — never while typing in a form control.
+  const keysRef = useRef<{ ordered: string[]; current: string; fileOf: Map<string, string> }>({
+    ordered: [], current: '', fileOf: new Map(),
+  })
+  keysRef.current = {
+    ordered: plan.orderedKeys,
+    current: state.finding,
+    fileOf: new Map(findings.map((f) => [f.key, f.anchor?.path ?? ''])),
+  }
+  const toggleRef = useRef(toggleViewed)
+  toggleRef.current = toggleViewed
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null
+      if (target?.closest('input, textarea, select, [contenteditable="true"]')) return
+      if (e.metaKey || e.ctrlKey || e.altKey) return
+      const { ordered, current, fileOf } = keysRef.current
+      if (e.key === 'j' || e.key === 'k') {
+        if (!ordered.length) return
+        const at = ordered.indexOf(current)
+        const next = e.key === 'j'
+          ? ordered[Math.min(at + 1, ordered.length - 1)]
+          : ordered[Math.max(at - 1, 0)]
+        if (next && next !== current) {
+          state.select({ finding: next, file: fileOf.get(next) || null })
+        }
+        e.preventDefault()
+      } else if (e.key === 'v' && current) {
+        const file = fileOf.get(current)
+        if (file) toggleRef.current(file)
+        e.preventDefault()
+      } else if (e.key === 'Escape' && current) {
+        state.select({ finding: null })
+      }
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   const startReview = async (reply: boolean) => {
     setActionError('')
     try {
@@ -111,8 +175,7 @@ export function Workspace({ owner, repo, pr }: { owner: string; repo: string; pr
   }
 
   if (detail.error && !detail.data) return <ErrorNotice message={detail.error} />
-  if (!detail.data) return <Loading label={t('pr.loading')} />
-  const data = detail.data
+  if (!data) return <Loading label={t('pr.loading')} />
 
   if (!data.reviewed) {
     return (
@@ -130,13 +193,6 @@ export function Workspace({ owner, repo, pr }: { owner: string; repo: string; pr
       </div>
     )
   }
-
-  const fileList = files.data?.files ?? []
-  const findings = attachExtras(
-    collectFindings(data, files.data?.threads ?? []),
-    extras.data ?? null,
-  )
-  const plan = planAnchors(findings, fileList)
 
   const pick = (f: Finding) => {
     state.select({ finding: f.key, file: f.anchor?.path ?? null })
@@ -203,6 +259,10 @@ export function Workspace({ owner, repo, pr }: { owner: string; repo: string; pr
         )}
 
         <div className="min-w-0">
+          <p className="mb-1.5 text-right font-mono text-[10px] tracking-[0.04em] text-ink-muted"
+             aria-hidden="true">
+            {t('ws.kbdHint')}
+          </p>
           <Suspense fallback={<Loading label={t('pr.loading')} />}>
             <DiffPane files={fileList} plan={plan} viewed={viewed}
                       onToggleViewed={toggleViewed}
